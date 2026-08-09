@@ -32,7 +32,7 @@ def update_ui(caption_index: int, obs_index: int):
     obs_index = max(0, min(obs_index, total_obs - 1)) if total_obs > 0 else 0
 
     # 1. Navigation header counter text
-    nav_text = f"**Caption {caption_index + 1} of {TOTAL_CAPTIONS}**"
+    nav_text = f"<div class='nav-counter-text'>Caption {caption_index + 1} of {TOTAL_CAPTIONS}</div>"
 
     # 2. Spectrum Plot
     if total_obs > 0:
@@ -56,15 +56,15 @@ def update_ui(caption_index: int, obs_index: int):
     is_insufficient = obj_data["is_insufficient"]
 
     if is_insufficient:
-        caption_html = (
+        caption_md = (
             "<div style='background-color: #7F1D1D; border: 1px solid #EF4444; color: #FCA5A5; "
-            "padding: 14px; border-radius: 8px; margin-bottom: 12px; font-weight: bold;'>"
-            "⚠️ INSUFFICIENT SPECTRAL DATA FOR CAPTION GENERATION"
-            "</div>"
-            f"<div style='font-size: 1.1em; line-height: 1.6; color: #E5E7EB;'>{caption_text}</div>"
+            "padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; font-weight: bold; font-size: 0.9em;'>"
+            "INSUFFICIENT SPECTRAL DATA FOR CAPTION GENERATION"
+            "</div>\n\n"
+            f"{caption_text}"
         )
     else:
-        caption_html = f"<div style='font-size: 1.15em; line-height: 1.7; color: #F9FAFB;'>{caption_text}</div>"
+        caption_md = caption_text
 
     # 5. Metadata Bar HTML
     z_str = "N/A"
@@ -127,12 +127,11 @@ def update_ui(caption_index: int, obs_index: int):
         fig,
         gr.update(visible=obs_nav_visible),
         obs_status,
-        caption_html,
+        caption_md,
         metadata_html,
         gr.update(visible=reasoning_visible),
         reasoning_html,
         quotes_list_html,
-        caption_index + 1,  # Number box update (1-indexed)
     )
 
 
@@ -143,13 +142,6 @@ def handle_prev_caption(current_idx: int):
 
 def handle_next_caption(current_idx: int):
     new_idx = min(TOTAL_CAPTIONS - 1, current_idx + 1)
-    return update_ui(new_idx, 0) + (None, "")
-
-
-def handle_jump_caption(jump_num: int):
-    if jump_num is None:
-        jump_num = 1
-    new_idx = max(0, min(int(jump_num) - 1, TOTAL_CAPTIONS - 1))
     return update_ui(new_idx, 0) + (None, "")
 
 
@@ -184,16 +176,122 @@ def handle_feedback_submit(
         note=note,
     )
     if success:
-        return f"<div style='color: #34D399; font-weight: bold;'>✅ {msg}</div>"
+        return f"<div style='color: #34D399; font-weight: bold;'>{msg}</div>"
     else:
-        return f"<div style='color: #F87171; font-weight: bold;'>⚠️ {msg}</div>"
+        return f"<div style='color: #F87171; font-weight: bold;'>{msg}</div>"
 
 
 # Build Gradio UI with theme and layout
 theme = gr.themes.Soft(
     primary_hue="blue",
     neutral_hue="slate",
+    font=[
+        gr.themes.GoogleFont("Inter"),
+        "system-ui",
+        "-apple-system",
+        "BlinkMacSystemFont",
+        "Segoe UI",
+        "Roboto",
+        "Helvetica Neue",
+        "Arial",
+        "sans-serif",
+    ],
+    font_mono=[
+        "ui-monospace",
+        "SFMono-Regular",
+        "Menlo",
+        "Monaco",
+        "Consolas",
+        "monospace",
+    ],
 )
+
+custom_css = """
+body, input, button, textarea, select, .gradio-container, .gradio-container * {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+/* Constrain max width for clean, ergonomic centered layout */
+.gradio-container {
+    max-width: 1100px !important;
+    margin: 0 auto !important;
+    padding: 24px 16px !important;
+}
+
+/* Header text alignment */
+.app-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.app-header h1 {
+    font-size: 1.8em !important;
+    font-weight: 700 !important;
+    margin-bottom: 6px !important;
+    color: #F9FAFB !important;
+}
+
+.app-header p {
+    font-size: 0.95em !important;
+    color: #9CA3AF !important;
+}
+
+/* Compact Navigation Bar */
+.nav-toolbar {
+    background-color: #1F2937 !important;
+    border: 1px solid #374151 !important;
+    border-radius: 10px !important;
+    padding: 10px 20px !important;
+    margin-bottom: 10px !important;
+    align-items: center !important;
+}
+
+.compact-btn button, button.compact-btn {
+    height: 38px !important;
+    min-height: 38px !important;
+    max-height: 38px !important;
+    font-size: 0.9em !important;
+    font-weight: 600 !important;
+    border-radius: 6px !important;
+}
+
+.nav-counter-text {
+    text-align: center;
+    font-size: 1.05em;
+    font-weight: 600;
+    color: #F9FAFB;
+    line-height: 38px;
+}
+
+/* AI Caption Box styling */
+.caption-box {
+    background-color: #1F2937 !important;
+    border: 1px solid #374151 !important;
+    border-radius: 10px !important;
+    padding: 18px 22px !important;
+    font-size: 1.08em !important;
+    line-height: 1.7 !important;
+    color: #F9FAFB !important;
+}
+
+.caption-box p {
+    font-size: 1.08em !important;
+    line-height: 1.7 !important;
+    color: #F9FAFB !important;
+    margin-bottom: 0 !important;
+}
+"""
+
+LATEX_DELIMITERS = [
+    {"left": "$$", "right": "$$", "display": True},
+    {"left": "$", "right": "$", "display": False},
+    {"left": "\\(", "right": "\\)", "display": False},
+    {"left": "\\[", "right": "\\]", "display": True},
+]
+
+head_html = """
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" id="MathJax-script" async></script>
+"""
 
 with gr.Blocks(title="Spectra Captions Viewer") as app:
     # State tracking
@@ -204,53 +302,52 @@ with gr.Blocks(title="Spectra Captions Viewer") as app:
     # Header
     gr.Markdown(
         """
-        # 🌌 Astronomical Spectra & AI Caption Evaluator
-        *Explore AI-generated captions for SDSS & DESI spectra alongside evidence quotes and interactive spectral observations.*
+        <div class="app-header">
+            <h1>Astronomical Spectra & AI Caption Evaluator</h1>
+            <p>Explore AI-generated captions for SDSS & DESI spectra alongside evidence quotes and interactive spectral observations.</p>
+        </div>
         """
     )
 
-    # Top Navigation Row
-    with gr.Row(equal_height=True):
-        prev_btn = gr.Button("◄ Previous", variant="secondary", scale=1)
-        nav_counter = gr.Markdown("**Caption 1 of 20**", elem_id="nav_counter")
-        next_btn = gr.Button("Next ►", variant="primary", scale=1)
-        jump_input = gr.Number(
-            value=1,
-            label="Jump to Index",
-            precision=0,
-            minimum=1,
-            maximum=TOTAL_CAPTIONS,
-            scale=1,
+    # Top Navigation Toolbar (Clean & Balanced: Previous | Caption X of 20 | Next)
+    with gr.Row(variant="panel", elem_classes=["nav-toolbar"]):
+        prev_btn = gr.Button("◄ Previous", variant="secondary", size="sm", scale=1, elem_classes=["compact-btn"])
+        nav_counter = gr.Markdown(
+            f"<div class='nav-counter-text'>Caption 1 of {TOTAL_CAPTIONS}</div>",
+            scale=2,
         )
+        next_btn = gr.Button("Next ►", variant="primary", size="sm", scale=1, elem_classes=["compact-btn"])
 
-    # Main Grid Layout: Plot (Left) & Caption (Right)
-    with gr.Row():
-        with gr.Column(scale=6):
-            spectrum_plot = gr.Plot(label="Observed Spectrum", show_label=True)
+    # 1. AI-Generated Caption Card (Featured first)
+    gr.Markdown("### AI-Generated Caption")
+    caption_display = gr.Markdown(
+        elem_classes=["caption-box"],
+        latex_delimiters=LATEX_DELIMITERS,
+    )
 
-            # Observation Switcher (Hidden unless multi-observation)
-            with gr.Row(visible=False) as obs_nav_row:
-                prev_obs_btn = gr.Button("◄ Prev Observation", variant="secondary", size="sm", scale=1)
-                obs_status_txt = gr.Markdown("", scale=2)
-                next_obs_btn = gr.Button("Next Observation ►", variant="secondary", size="sm", scale=1)
+    # 2. Observed Spectrum Plot Card (Full width visual focus)
+    gr.Markdown("### Observed Spectrum Plot")
+    spectrum_plot = gr.Plot(show_label=False)
 
-        with gr.Column(scale=5):
-            gr.Markdown("### 📝 AI-Generated Caption")
-            caption_display = gr.HTML()
+    # Observation Switcher (Hidden unless multi-observation)
+    with gr.Row(visible=False) as obs_nav_row:
+        prev_obs_btn = gr.Button("◄ Prev Observation", variant="secondary", size="sm", scale=1)
+        obs_status_txt = gr.Markdown("", scale=2)
+        next_obs_btn = gr.Button("Next Observation ►", variant="secondary", size="sm", scale=1)
 
-    # Metadata Row
-    gr.Markdown("### 📊 Metadata")
+    # 3. Metadata Section
+    gr.Markdown("### Metadata")
     metadata_display = gr.HTML()
 
-    # Accordions: Model Reasoning & Evidence Quotes
-    with gr.Accordion("🧠 Model Reasoning (Chain of Thought)", open=False, visible=True) as reasoning_accordion:
-        reasoning_display = gr.Markdown()
+    # 4. Accordions: Model Reasoning & Evidence Quotes
+    with gr.Accordion("Model Reasoning (Chain of Thought)", open=False, visible=True) as reasoning_accordion:
+        reasoning_display = gr.Markdown(latex_delimiters=LATEX_DELIMITERS)
 
-    with gr.Accordion("📚 Linked Evidence Quotes", open=True):
+    with gr.Accordion("Linked Evidence Quotes", open=True):
         quotes_display = gr.HTML()
 
-    # User Feedback Panel
-    gr.Markdown("### 💬 Expert Feedback")
+    # 5. User Feedback Panel
+    gr.Markdown("### Expert Feedback")
     with gr.Row():
         with gr.Column(scale=2):
             gr.Markdown("**Rating:**")
@@ -282,7 +379,6 @@ with gr.Blocks(title="Spectra Captions Viewer") as app:
         reasoning_accordion,
         reasoning_display,
         quotes_display,
-        jump_input,
         rating_state,
         note_input,
     ]
@@ -299,12 +395,6 @@ with gr.Blocks(title="Spectra Captions Viewer") as app:
         outputs=nav_outputs,
     )
 
-    jump_input.submit(
-        fn=handle_jump_caption,
-        inputs=[jump_input],
-        outputs=nav_outputs,
-    )
-
     # 2. Spectrum Observation switching
     obs_outputs = [
         caption_idx_state,
@@ -318,7 +408,6 @@ with gr.Blocks(title="Spectra Captions Viewer") as app:
         reasoning_accordion,
         reasoning_display,
         quotes_display,
-        jump_input,
         rating_state,
         note_input,
     ]
@@ -375,10 +464,17 @@ with gr.Blocks(title="Spectra Captions Viewer") as app:
             reasoning_accordion,
             reasoning_display,
             quotes_display,
-            jump_input,
         ],
     )
 
 if __name__ == "__main__":
-    app.launch(server_name="0.0.0.0", server_port=7860, theme=theme, share=False)
+    app.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        theme=theme,
+        css=custom_css,
+        head=head_html,
+        share=False,
+    )
+
 
