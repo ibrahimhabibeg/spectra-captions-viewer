@@ -2,12 +2,13 @@ import json
 import os
 import numpy as np
 import pandas as pd
+import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-NEEDED_COLS = [
+# Metadata columns (excluding large spectrum structs to minimize RAM usage)
+METADATA_COLS = [
     "wiki_entity_id",
     "object_id",
-    "spectrum",
     "Z",
     "ZERR",
     "Z_ERR",
@@ -37,23 +38,54 @@ def load_captions(path: str) -> list[dict]:
 
 def load_parquet(path: str) -> pd.DataFrame:
     """
-    Load a Parquet file from a local file path.
-    Uses PyArrow column filtering to keep memory footprint under 5 MB.
+    Load metadata columns from a Parquet file.
+    Reads schema first, then passes columns directly to read_table() to prevent loading spectrum columns into RAM.
     """
-    print(f"[data_loader] Loading parquet file: {path}", flush=True)
+    print(f"[data_loader] Loading parquet metadata file: {path}", flush=True)
     if not os.path.exists(path):
         raise FileNotFoundError(f"Parquet file not found at: {path}")
 
-    table = pq.read_table(path)
-    available_cols = [c for c in NEEDED_COLS if c in table.schema.names]
-    df = table.select(available_cols).to_pandas()
+    meta = pq.read_metadata(path)
+    available_cols = [c for c in METADATA_COLS if c in meta.schema.names]
+    table = pq.read_table(path, columns=available_cols)
+    df = table.to_pandas()
+    df.attrs["parquet_path"] = path
 
     ram_mb = df.memory_usage(deep=True).sum() / (1024 * 1024)
     print(
-        f"[data_loader] Loaded Parquet ({path}): {len(df)} rows, {len(available_cols)} columns, RAM: {ram_mb:.2f} MB",
+        f"[data_loader] Loaded Parquet metadata ({path}): {len(df)} rows, {len(available_cols)} columns, RAM: {ram_mb:.2f} MB",
         flush=True,
     )
     return df
+
+
+def fetch_spectrum_dict(parquet_path: str, object_id_val) -> dict:
+    """
+    Lazily fetch the 'spectrum' struct ONLY for the requested object_id.
+    This avoids loading thousands of heavy spectrum arrays into RAM simultaneously.
+    """
+    if not parquet_path or not os.path.exists(parquet_path):
+        return {}
+
+    dataset = ds.dataset(parquet_path, format="parquet")
+    schema = dataset.schema
+    col_type = schema.field("object_id").type
+
+    if str(col_type).startswith("int"):
+        try:
+            target_val = int(object_id_val)
+        except (ValueError, TypeError):
+            target_val = object_id_val
+    else:
+        target_val = str(object_id_val)
+
+    table = dataset.to_table(
+        filter=(ds.field("object_id") == target_val),
+        columns=["object_id", "spectrum"],
+    )
+    if len(table) > 0:
+        return table.column("spectrum")[0].as_py()
+    return {}
 
 
 def get_object_data(
@@ -72,6 +104,7 @@ def get_object_data(
 
     # Select appropriate parquet dataframe
     df = desi_df if dataset_source == "desi" else sdss_df
+    parquet_path = df.attrs.get("parquet_path", None)
 
     # Filter by wiki_entity_id
     matches = df[df["wiki_entity_id"] == object_key]
@@ -109,7 +142,13 @@ def get_object_data(
         grouped = matches.groupby("object_id", sort=False)
         for obj_id, group in grouped:
             first_row = group.iloc[0]
-            spectrum = first_row.get("spectrum", {})
+
+            # Lazily load spectrum dictionary for this object_id
+            spectrum = (
+                fetch_spectrum_dict(parquet_path, obj_id)
+                if parquet_path
+                else first_row.get("spectrum", {})
+            )
 
             # Extract redshift and error
             z_val = first_row.get("Z", None)
