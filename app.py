@@ -9,13 +9,14 @@ from feedback import submit_feedback
 from plotting import plot_spectrum
 
 # Pre-load dataset at app launch
-print("Loading captions and spectra datasets...")
+print("Loading captions and spectra datasets...", flush=True)
 CAPTIONS = load_captions(config.CAPTIONS_JSONL_PATH)
 DESI_DF = load_parquet(config.DESI_PARQUET_PATH)
 SDSS_DF = load_parquet(config.SDSS_PARQUET_PATH)
 TOTAL_CAPTIONS = len(CAPTIONS)
 print(
-    f"Successfully loaded {TOTAL_CAPTIONS} captions, {len(DESI_DF)} DESI rows, and {len(SDSS_DF)} SDSS rows."
+    f"Successfully loaded {TOTAL_CAPTIONS} captions, {len(DESI_DF)} DESI rows, and {len(SDSS_DF)} SDSS rows.",
+    flush=True,
 )
 
 
@@ -470,10 +471,11 @@ with gr.Blocks(title="Spectra Captions Viewer") as app:
     )
 
 if __name__ == "__main__":
-    print(f"DEBUG: PORT={os.environ.get('PORT')}")
+    port = int(os.environ.get("PORT", 7860))
+    print(f"[app] Launching server on 0.0.0.0:{port} ...", flush=True)
     app.launch(
         server_name="0.0.0.0",
-        server_port=int(os.environ.get("PORT", 7860)),
+        server_port=port,
         theme=theme,
         css=custom_css,
         head=head_html,
