@@ -39,14 +39,15 @@ def load_captions(path: str) -> list[dict]:
 def load_parquet(path: str) -> pd.DataFrame:
     """
     Load metadata columns from a Parquet file.
-    Reads schema first, then passes columns directly to read_table() to prevent loading spectrum columns into RAM.
+    Reads schema via ParquetFile, then passes columns directly to read_table() to prevent loading spectrum columns into RAM.
     """
     print(f"[data_loader] Loading parquet metadata file: {path}", flush=True)
     if not os.path.exists(path):
         raise FileNotFoundError(f"Parquet file not found at: {path}")
 
-    meta = pq.read_metadata(path)
-    available_cols = [c for c in METADATA_COLS if c in meta.schema.names]
+    pf = pq.ParquetFile(path)
+    top_names = pf.schema.to_arrow_schema().names
+    available_cols = [c for c in METADATA_COLS if c in top_names]
     table = pq.read_table(path, columns=available_cols)
     df = table.to_pandas()
     df.attrs["parquet_path"] = path
