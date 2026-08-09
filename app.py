@@ -1,3 +1,5 @@
+import os
+
 import gradio as gr
 import pandas as pd
 
@@ -470,11 +472,10 @@ with gr.Blocks(title="Spectra Captions Viewer") as app:
 if __name__ == "__main__":
     app.launch(
         server_name="0.0.0.0",
-        server_port=7860,
+        server_port=int(os.environ.get("PORT", 7860)),
         theme=theme,
         css=custom_css,
         head=head_html,
         share=False,
     )
-
 

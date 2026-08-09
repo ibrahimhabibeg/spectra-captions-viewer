@@ -10,7 +10,7 @@ pinned: false
 license: cc-by-4.0
 ---
 
-# Astronomical Spectra & AI Caption Evaluator 🌌
+# Astronomical Spectra & AI Caption Evaluator
 
 An interactive Python GUI built with **Gradio** for astronomy experts to browse, evaluate, and provide feedback on AI-generated captions for astronomical objects from **SDSS** and **DESI** spectral catalogs.
 
