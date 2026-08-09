@@ -470,6 +470,7 @@ with gr.Blocks(title="Spectra Captions Viewer") as app:
     )
 
 if __name__ == "__main__":
+    print(f"DEBUG: PORT={os.environ.get('PORT')}")
     app.launch(
         server_name="0.0.0.0",
         server_port=int(os.environ.get("PORT", 7860)),
