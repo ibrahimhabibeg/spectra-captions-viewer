@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
+import streamlit as st
 
 # Metadata columns (excluding large spectrum structs to minimize RAM usage)
 METADATA_COLS = [
@@ -21,6 +22,7 @@ METADATA_COLS = [
 ]
 
 
+@st.cache_data
 def load_captions(path: str) -> list[dict]:
     """Load JSONL captions from a local file path."""
     print(f"[data_loader] Loading captions from: {path}", flush=True)
@@ -36,6 +38,7 @@ def load_captions(path: str) -> list[dict]:
     return captions
 
 
+@st.cache_data
 def load_parquet(path: str) -> pd.DataFrame:
     """
     Load metadata columns from a Parquet file.

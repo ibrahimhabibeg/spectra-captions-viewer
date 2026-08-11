@@ -1,6 +1,6 @@
-gradio>=5.0
 pandas
 pyarrow
 matplotlib
 huggingface_hub
 requests
+streamlit
