@@ -1,4 +1,5 @@
 import streamlit as st
+from caption_annotator import render_caption_annotator
 from plotting import create_spectrum_figure
 
 # Standard diagnostic tags for single and comparative evaluation
@@ -170,21 +171,26 @@ def render_shared_evidence(
 def render_single_caption_eval(obj_data: dict, on_submit: callable):
     """
     Renders evaluation interface for single-caption objects.
-    Features: Full-width caption card + inline evaluation bar with Submit & Next.
+    Features: Interactive text span highlighter + inline evaluation bar with Submit & Next.
     """
     caption_obj = obj_data["captions"][0]
     obj_idx = obj_data["index"]
 
-    # 1. Caption Card
+    # 1. Interactive Caption Card with Google Docs-style Highlighting
     with st.container(border=True):
         st.caption(
             f"AI-Generated Caption • Model: **{caption_obj.get('model', 'N/A')}** • "
             f"Strategy: `{caption_obj.get('strategy', 'N/A')}` "
-            f"(Source row #{caption_obj['file_index']})"
+            f"(Source row #{caption_obj['file_index']}) • *Select text with mouse to add span annotations*"
         )
         if caption_obj.get("is_insufficient"):
             st.error("Insufficient spectral data for caption generation", icon=":material/warning:")
-        st.markdown(caption_obj.get("caption", ""))
+
+        # Bi-directional CCv2 text annotator
+        annotations = render_caption_annotator(
+            caption_text=caption_obj.get("caption", ""),
+            key=f"annotator_single_{obj_idx}",
+        )
 
     # 2. Evaluation Action Bar
     with st.container(border=True):
@@ -237,6 +243,7 @@ def render_single_caption_eval(obj_data: dict, on_submit: callable):
                     strategy=caption_obj.get("strategy", ""),
                     rating=rating_val,
                     tags=selected_tags or [],
+                    span_annotations=annotations or [],
                     note=note_input,
                 )
 
@@ -244,7 +251,7 @@ def render_single_caption_eval(obj_data: dict, on_submit: callable):
 def render_comparison_eval(obj_data: dict, on_submit: callable):
     """
     Renders comparative evaluation interface for 2+ candidate captions.
-    Features: Side-by-side candidate cards + independent ratings/tags + Head-to-Head vote.
+    Features: Side-by-side candidate cards with span highlighters + independent ratings/tags + Head-to-Head vote.
     """
     captions = obj_data["captions"]
     cand_a = captions[0]
@@ -256,8 +263,13 @@ def render_comparison_eval(obj_data: dict, on_submit: callable):
 
     with col_a:
         with st.container(border=True):
-            st.caption(f"Candidate A • **{cand_a.get('model', 'Model A')}** (Row #{cand_a['file_index']})")
-            st.markdown(cand_a.get("caption", ""))
+            st.caption(
+                f"Candidate A • **{cand_a.get('model', 'Model A')}** (Row #{cand_a['file_index']}) • *Select text to highlight*"
+            )
+            annotations_a = render_caption_annotator(
+                caption_text=cand_a.get("caption", ""),
+                key=f"annotator_comp_a_{obj_idx}",
+            )
 
             st.divider()
             st.caption("Candidate A rating")
@@ -278,8 +290,13 @@ def render_comparison_eval(obj_data: dict, on_submit: callable):
 
     with col_b:
         with st.container(border=True):
-            st.caption(f"Candidate B • **{cand_b.get('model', 'Model B')}** (Row #{cand_b['file_index']})")
-            st.markdown(cand_b.get("caption", ""))
+            st.caption(
+                f"Candidate B • **{cand_b.get('model', 'Model B')}** (Row #{cand_b['file_index']}) • *Select text to highlight*"
+            )
+            annotations_b = render_caption_annotator(
+                caption_text=cand_b.get("caption", ""),
+                key=f"annotator_comp_b_{obj_idx}",
+            )
 
             st.divider()
             st.caption("Candidate B rating")
@@ -352,8 +369,8 @@ def render_comparison_eval(obj_data: dict, on_submit: callable):
                     },
                     vote=vote_val,
                     candidates_eval={
-                        "A": {"rating": rating_a_val, "tags": tags_a or []},
-                        "B": {"rating": rating_b_val, "tags": tags_b or []},
+                        "A": {"rating": rating_a_val, "tags": tags_a or [], "span_annotations": annotations_a or []},
+                        "B": {"rating": rating_b_val, "tags": tags_b or [], "span_annotations": annotations_b or []},
                     },
                     note=comp_note,
                 )

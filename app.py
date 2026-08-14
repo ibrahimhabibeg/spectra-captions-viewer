@@ -89,12 +89,9 @@ def on_single_submit(
     strategy: str,
     rating: str | None,
     tags: list[str],
+    span_annotations: list[dict],
     note: str,
 ):
-    if not rating and not tags and not note.strip():
-        st.warning("Please provide a rating, tag, or note before submitting.")
-        return
-
     success, msg = submit_single_feedback(
         object_key=obj_data["object_key"],
         dataset_source=obj_data["dataset_source"],
@@ -103,10 +100,11 @@ def on_single_submit(
         strategy=strategy,
         rating=rating,
         tags=tags,
+        span_annotations=span_annotations,
         note=note,
     )
     if success:
-        st.toast("Feedback recorded successfully!", icon="✅")
+        st.toast("Advanced to next object", icon="✅")
         # Auto-advance to next object
         if st.session_state.object_idx < total_objects - 1:
             st.session_state.object_idx += 1
@@ -123,10 +121,6 @@ def on_comparison_submit(
     candidates_eval: dict[str, dict],
     note: str,
 ):
-    if not vote and not candidates_eval and not note.strip():
-        st.warning("Please select a comparative vote or evaluation before submitting.")
-        return
-
     success, msg = submit_comparison_feedback(
         object_key=obj_data["object_key"],
         dataset_source=obj_data["dataset_source"],
@@ -137,7 +131,7 @@ def on_comparison_submit(
         note=note,
     )
     if success:
-        st.toast("Comparative vote recorded successfully!", icon="✅")
+        st.toast("Advanced to next object", icon="✅")
         # Auto-advance to next object
         if st.session_state.object_idx < total_objects - 1:
             st.session_state.object_idx += 1

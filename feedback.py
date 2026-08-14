@@ -73,12 +73,10 @@ def submit_single_feedback(
     strategy: str,
     rating: str | None = None,
     tags: list[str] | None = None,
+    span_annotations: list[dict] | None = None,
     note: str | None = None,
 ) -> tuple[bool, str]:
-    """Submits feedback for a single-caption evaluation, including caption_file_index."""
-    if not rating and not tags and not (note and note.strip()):
-        return False, "Please select a rating, tags, or add notes before submitting."
-
+    """Submits feedback for a single-caption evaluation (allows unrated / blank submissions)."""
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     record = {
         "evaluation_mode": "single_caption",
@@ -89,6 +87,7 @@ def submit_single_feedback(
         "strategy": strategy,
         "rating": rating,
         "tags": tags or [],
+        "span_annotations": span_annotations or [],
         "note": note.strip() if note else None,
         "timestamp": timestamp,
     }
@@ -100,14 +99,11 @@ def submit_comparison_feedback(
     dataset_source: str,
     candidate_file_indices: dict[str, int],
     candidates_info: dict[str, dict],
-    vote: str | None,
+    vote: str | None = None,
     candidates_eval: dict[str, dict] | None = None,
     note: str | None = None,
 ) -> tuple[bool, str]:
-    """Submits comparative feedback and head-to-head vote for multiple candidate captions."""
-    if not vote and not candidates_eval and not (note and note.strip()):
-        return False, "Please select a vote preference or evaluate candidate captions before submitting."
-
+    """Submits comparative feedback and head-to-head vote (allows blank submissions)."""
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     record = {
         "evaluation_mode": "multi_caption_comparison",
@@ -132,6 +128,7 @@ def submit_feedback(
     note: str | None = None,
     caption_file_index: int = 0,
     tags: list[str] | None = None,
+    span_annotations: list[dict] | None = None,
 ) -> tuple[bool, str]:
     """Backward-compatible single feedback wrapper."""
     return submit_single_feedback(
@@ -142,5 +139,6 @@ def submit_feedback(
         strategy=strategy,
         rating=rating,
         tags=tags,
+        span_annotations=span_annotations,
         note=note,
     )
