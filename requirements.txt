@@ -4,3 +4,4 @@ matplotlib
 huggingface_hub
 requests
 streamlit
+plotly>=5.18.0

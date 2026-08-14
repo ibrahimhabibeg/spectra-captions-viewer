@@ -6,34 +6,11 @@ from huggingface_hub import HfApi, hf_hub_download
 import config
 
 
-def submit_feedback(
-    object_key: str,
-    dataset_source: str,
-    model: str,
-    strategy: str,
-    rating: str | None = None,
-    note: str | None = None,
-) -> tuple[bool, str]:
-    """
-    Submits feedback (thumbs up/down and/or note) for a given caption.
-    Appends to HF dataset repo if HF_TOKEN is configured, and logs locally as fallback/cache.
-    """
-    if not rating and not (note and note.strip()):
-        return False, "Please provide a rating (👍 / 👎) or write a note before submitting."
+def _save_and_upload_record(feedback_record: dict, object_key: str) -> tuple[bool, str]:
+    """Helper to persist feedback locally and push to HuggingFace dataset."""
+    timestamp = feedback_record.get("timestamp", datetime.datetime.now(datetime.timezone.utc).isoformat())
 
-    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-    feedback_record = {
-        "object_key": object_key,
-        "dataset_source": dataset_source,
-        "model": model,
-        "strategy": strategy,
-        "rating": rating,
-        "note": note.strip() if note else None,
-        "timestamp": timestamp,
-    }
-
-    # Always log locally first
+    # Always log locally
     local_dir = "output"
     os.makedirs(local_dir, exist_ok=True)
     local_file = os.path.join(local_dir, "feedback.jsonl")
@@ -44,17 +21,16 @@ def submit_feedback(
     except Exception as e:
         print(f"Warning: Failed to write local feedback log: {e}")
 
-    # Push to HuggingFace dataset if HF token is present
+    # Push to HuggingFace dataset if HF token is configured
     token = config.HF_TOKEN or os.getenv("HF_TOKEN")
     repo_id = config.FEEDBACK_DATASET_REPO
 
     if not token:
-        return True, "Feedback saved locally. (Note: HF_TOKEN secret not configured for HF dataset push)."
+        return True, "Feedback saved locally. (Note: HF_TOKEN not configured for remote dataset sync)."
 
     try:
         api = HfApi(token=token)
 
-        # Download existing feedback.jsonl if it exists, or create new
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_filepath = os.path.join(tmpdir, "feedback.jsonl")
             existing_content = ""
@@ -68,7 +44,6 @@ def submit_feedback(
                 with open(downloaded_path, "r", encoding="utf-8") as f:
                     existing_content = f.read()
             except Exception:
-                # File may not exist yet in the repo
                 existing_content = ""
 
             new_line = json.dumps(feedback_record) + "\n"
@@ -88,3 +63,84 @@ def submit_feedback(
         return True, "Thank you! Your feedback has been recorded."
     except Exception as e:
         return True, f"Feedback saved locally, but HF Hub push encountered an issue: {e}"
+
+
+def submit_single_feedback(
+    object_key: str,
+    dataset_source: str,
+    caption_file_index: int,
+    model: str,
+    strategy: str,
+    rating: str | None = None,
+    tags: list[str] | None = None,
+    note: str | None = None,
+) -> tuple[bool, str]:
+    """Submits feedback for a single-caption evaluation, including caption_file_index."""
+    if not rating and not tags and not (note and note.strip()):
+        return False, "Please select a rating, tags, or add notes before submitting."
+
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    record = {
+        "evaluation_mode": "single_caption",
+        "object_key": object_key,
+        "dataset_source": dataset_source,
+        "caption_file_index": caption_file_index,
+        "model": model,
+        "strategy": strategy,
+        "rating": rating,
+        "tags": tags or [],
+        "note": note.strip() if note else None,
+        "timestamp": timestamp,
+    }
+    return _save_and_upload_record(record, object_key)
+
+
+def submit_comparison_feedback(
+    object_key: str,
+    dataset_source: str,
+    candidate_file_indices: dict[str, int],
+    candidates_info: dict[str, dict],
+    vote: str | None,
+    candidates_eval: dict[str, dict] | None = None,
+    note: str | None = None,
+) -> tuple[bool, str]:
+    """Submits comparative feedback and head-to-head vote for multiple candidate captions."""
+    if not vote and not candidates_eval and not (note and note.strip()):
+        return False, "Please select a vote preference or evaluate candidate captions before submitting."
+
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    record = {
+        "evaluation_mode": "multi_caption_comparison",
+        "object_key": object_key,
+        "dataset_source": dataset_source,
+        "candidate_file_indices": candidate_file_indices,
+        "candidates_info": candidates_info,
+        "vote": vote,
+        "candidates_eval": candidates_eval or {},
+        "note": note.strip() if note else None,
+        "timestamp": timestamp,
+    }
+    return _save_and_upload_record(record, object_key)
+
+
+def submit_feedback(
+    object_key: str,
+    dataset_source: str,
+    model: str,
+    strategy: str,
+    rating: str | None = None,
+    note: str | None = None,
+    caption_file_index: int = 0,
+    tags: list[str] | None = None,
+) -> tuple[bool, str]:
+    """Backward-compatible single feedback wrapper."""
+    return submit_single_feedback(
+        object_key=object_key,
+        dataset_source=dataset_source,
+        caption_file_index=caption_file_index,
+        model=model,
+        strategy=strategy,
+        rating=rating,
+        tags=tags,
+        note=note,
+    )

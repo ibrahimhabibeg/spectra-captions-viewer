@@ -1,39 +1,52 @@
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
+
+# Common rest-frame emission lines (wavelength in Angstroms)
+STANDARD_REST_LINES = [
+    {"name": "[O II]", "lambda": 3728.80, "color": "#C4B5FD"},
+    {"name": "Hβ", "lambda": 4862.68, "color": "#93C5FD"},
+    {"name": "[O III]", "lambda": 5008.24, "color": "#6EE7B7"},
+    {"name": "[N II]", "lambda": 6585.27, "color": "#FDE68A"},
+    {"name": "Hα", "lambda": 6564.61, "color": "#FCA5A5"},
+    {"name": "[S II]", "lambda": 6718.29, "color": "#FDBA74"},
+]
 
 
-def plot_spectrum(
+def create_spectrum_figure(
     obs: dict,
     object_key: str,
     dataset_source: str,
     obs_index: int = 0,
     total_obs: int = 1,
-) -> plt.Figure:
+    show_line_markers: bool = True,
+) -> go.Figure:
     """
-    Generate a clean, high-quality Matplotlib figure of an astronomical spectrum.
+    Generate an interactive, responsive Plotly figure for an astronomical spectrum.
+    Uses the standard Plotly theme with larger dimensions and clear, readable font sizes.
     """
-    fig, ax = plt.subplots(figsize=(10, 4.5), dpi=100)
-    fig.patch.set_facecolor("#111827")  # Tailored dark theme background (gray-900)
-    ax.set_facecolor("#1F2937")  # Gray-800 plot background
+    fig = go.Figure()
 
     if not obs or len(obs.get("lambda", [])) == 0:
-        ax.text(
-            0.5,
-            0.5,
-            "No Spectral Data Available",
-            ha="center",
-            va="center",
-            color="#9CA3AF",
-            fontsize=14,
+        fig.add_annotation(
+            text="No spectral data available for this object",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=16),
         )
-        ax.axis("off")
+        fig.update_layout(
+            template="plotly",
+            height=380,
+            margin=dict(l=55, r=25, t=40, b=45),
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False, showticklabels=False),
+        )
         return fig
 
     wavelength = np.array(obs["lambda"])
     flux = np.array(obs["flux"])
-    ivar = np.array(obs.get("ivar", []))
     mask = np.array(obs.get("mask", []))
 
     # Filter out invalid wavelengths (<= 0)
@@ -41,25 +54,40 @@ def plot_spectrum(
 
     # Filter out masked pixels if mask is provided
     if len(mask) == len(wavelength):
-        # boolean mask: True indicates masked/bad pixel
         if mask.dtype == bool:
             valid_indices &= ~mask
         else:
             valid_indices &= mask == 0
 
-    # Apply filter
     w_clean = wavelength[valid_indices]
     f_clean = flux[valid_indices]
 
     if len(w_clean) == 0:
-        # Fallback to unfiltered if cleaning removed everything
         w_clean = wavelength
         f_clean = flux
 
-    # Line plot with cyan/electric blue glow
-    ax.plot(w_clean, f_clean, color="#38BDF8", linewidth=1.0, alpha=0.9, label="Flux")
+    # Trace: High-contrast spectral flux line
+    fig.add_trace(
+        go.Scatter(
+            x=w_clean,
+            y=f_clean,
+            mode="lines",
+            name="Flux",
+            line=dict(width=1.4),
+            hovertemplate="<b>λ:</b> %{x:.1f} Å<br><b>Flux:</b> %{y:.2f}<extra></extra>",
+        )
+    )
 
-    # Titles and Redshift information
+    # Dynamic y-axis percentile limits to avoid spikes crushing the continuum
+    y_min, y_max = None, None
+    if len(f_clean) > 0:
+        q1, q99 = np.percentile(f_clean, [0.5, 99.5])
+        margin = (q99 - q1) * 0.12
+        if margin > 0:
+            y_min = float(q1 - margin)
+            y_max = float(q99 + margin)
+
+    # Redshift & Line Markers
     z_val = obs.get("z")
     z_err = obs.get("z_err")
     z_str = ""
@@ -69,29 +97,55 @@ def plot_spectrum(
         else:
             z_str = f" | z = {z_val:.4f}"
 
+        # Overlay redshifted lines if inside observed spectral range
+        if show_line_markers and len(w_clean) > 0:
+            w_min, w_max = float(np.min(w_clean)), float(np.max(w_clean))
+            for line_info in STANDARD_REST_LINES:
+                obs_lambda = line_info["lambda"] * (1.0 + z_val)
+                if w_min <= obs_lambda <= w_max:
+                    fig.add_vline(
+                        x=obs_lambda,
+                        line_width=1.2,
+                        line_dash="dot",
+                        line_color=line_info["color"],
+                        opacity=0.75,
+                        annotation_text=line_info["name"],
+                        annotation_position="top",
+                        annotation_font=dict(size=11, color=line_info["color"]),
+                    )
+
     obs_str = f" (Obs {obs_index + 1}/{total_obs})" if total_obs > 1 else ""
-    title_text = (
-        f"{object_key} [{dataset_source.upper()}]{obs_str}{z_str}\n"
-        f"Object ID: {obs.get('object_id', 'N/A')}"
+    title_text = f"<b>{object_key}</b> [{dataset_source.upper()}]{obs_str}{z_str}"
+
+    fig.update_layout(
+        template="plotly",
+        height=380,
+        margin=dict(l=55, r=25, t=42, b=45),
+        title=dict(
+            text=title_text,
+            font=dict(size=15),
+            x=0.01,
+            y=0.97,
+        ),
+        xaxis=dict(
+            title=dict(text="Observed Wavelength (Å)", font=dict(size=13)),
+            tickfont=dict(size=11),
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title=dict(
+                text="Flux (10⁻¹⁷ erg s⁻¹ cm⁻² Å⁻¹)",
+                font=dict(size=13),
+            ),
+            tickfont=dict(size=11),
+            range=[y_min, y_max] if y_min is not None and y_max is not None else None,
+            zeroline=False,
+        ),
+        hoverlabel=dict(
+            font_size=12,
+        ),
+        showlegend=False,
+        hovermode="x unified",
     )
 
-    ax.set_title(title_text, color="#F9FAFB", fontsize=12, fontweight="bold", pad=12)
-    ax.set_xlabel("Observed Wavelength (Å)", color="#E5E7EB", fontsize=10, labelpad=8)
-    ax.set_ylabel("Flux (10⁻¹⁷ erg s⁻¹ cm⁻² Å⁻¹)", color="#E5E7EB", fontsize=10, labelpad=8)
-
-    # Styling grid, ticks, and spine colors
-    ax.tick_params(colors="#9CA3AF", labelsize=9)
-    for spine in ax.spines.values():
-        spine.set_color("#374151")
-
-    ax.grid(True, linestyle="--", alpha=0.25, color="#6B7280")
-
-    # Dynamic y-axis limits to avoid outlier spikes stretching the plot
-    if len(f_clean) > 0:
-        q1, q99 = np.percentile(f_clean, [0.5, 99.5])
-        margin = (q99 - q1) * 0.1
-        if margin > 0:
-            ax.set_ylim(q1 - margin, q99 + margin)
-
-    plt.tight_layout()
     return fig

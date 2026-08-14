@@ -24,18 +24,46 @@ METADATA_COLS = [
 
 @st.cache_data
 def load_captions(path: str) -> list[dict]:
-    """Load JSONL captions from a local file path."""
+    """Load JSONL captions from a local file path, attaching the 0-indexed file_index."""
     print(f"[data_loader] Loading captions from: {path}", flush=True)
     if not os.path.exists(path):
         raise FileNotFoundError(f"Captions file not found at: {path}")
 
     captions = []
     with open(path, "r", encoding="utf-8") as f:
-        for line in f:
+        for idx, line in enumerate(f):
             if line.strip():
-                captions.append(json.loads(line))
+                record = json.loads(line)
+                record["file_index"] = idx
+                captions.append(record)
     print(f"[data_loader] Successfully loaded {len(captions)} captions.", flush=True)
     return captions
+
+
+@st.cache_data
+def load_and_group_objects(path: str) -> list[dict]:
+    """
+    Load captions and group them by object_key to support single or multiple candidate captions per object.
+    Preserves original order of object discovery.
+    """
+    raw_captions = load_captions(path)
+    grouped_map = {}
+    ordered_keys = []
+
+    for cap in raw_captions:
+        obj_key = cap.get("object_key")
+        if obj_key not in grouped_map:
+            grouped_map[obj_key] = {
+                "object_key": obj_key,
+                "dataset_source": cap.get("dataset_source", "sdss").lower(),
+                "ra": cap.get("ra"),
+                "dec": cap.get("dec"),
+                "captions": [],
+            }
+            ordered_keys.append(obj_key)
+        grouped_map[obj_key]["captions"].append(cap)
+
+    return [grouped_map[k] for k in ordered_keys]
 
 
 @st.cache_data
@@ -92,19 +120,19 @@ def fetch_spectrum_dict(parquet_path: str, object_id_val) -> dict:
     return {}
 
 
-def get_object_data(
-    captions: list[dict], desi_df: pd.DataFrame, sdss_df: pd.DataFrame, index: int
+def get_object_eval_data(
+    objects: list[dict], desi_df: pd.DataFrame, sdss_df: pd.DataFrame, index: int
 ) -> dict:
     """
-    Given the captions list, DESI and SDSS dataframes, and a target caption index,
-    returns a dictionary containing caption details, quotes, and observation spectra.
+    Given the grouped objects list, DESI and SDSS dataframes, and target object index,
+    returns complete evaluation data containing all candidate captions, quotes, and observations.
     """
-    if index < 0 or index >= len(captions):
-        raise IndexError(f"Caption index {index} out of bounds (0 to {len(captions)-1}).")
+    if index < 0 or index >= len(objects):
+        raise IndexError(f"Object index {index} out of bounds (0 to {len(objects)-1}).")
 
-    caption_record = captions[index]
-    object_key = caption_record["object_key"]
-    dataset_source = caption_record["dataset_source"].lower()
+    obj_summary = objects[index]
+    object_key = obj_summary["object_key"]
+    dataset_source = obj_summary["dataset_source"].lower()
 
     # Select appropriate parquet dataframe
     df = desi_df if dataset_source == "desi" else sdss_df
@@ -123,7 +151,6 @@ def get_object_data(
         if isinstance(eq, dict):
             quote_ids = eq.get("quote_id", [])
             quotes = eq.get("quote", [])
-            # Convert numpy arrays to lists if necessary
             if hasattr(quote_ids, "tolist"):
                 quote_ids = quote_ids.tolist()
             if hasattr(quotes, "tolist"):
@@ -136,32 +163,28 @@ def get_object_data(
                     evidence_quotes.append({
                         "quote_id": qid_str,
                         "arxiv_id": arxiv_id,
-                        "quote": str(q)
+                        "quote": str(q),
                     })
 
     # Group by object_id for distinct spectral observations
     observations = []
     if not matches.empty:
-        # Group preserving order of appearance
         grouped = matches.groupby("object_id", sort=False)
         for obj_id, group in grouped:
             first_row = group.iloc[0]
 
-            # Lazily load spectrum dictionary for this object_id
             spectrum = (
                 fetch_spectrum_dict(parquet_path, obj_id)
                 if parquet_path
                 else first_row.get("spectrum", {})
             )
 
-            # Extract redshift and error
             z_val = first_row.get("Z", None)
             if z_val is not None and pd.notna(z_val):
                 z_val = float(z_val)
             else:
                 z_val = None
 
-            # DESI uses ZERR, SDSS uses Z_ERR
             z_err_col = "ZERR" if dataset_source == "desi" else "Z_ERR"
             z_err_val = first_row.get(z_err_col, None)
             if z_err_val is not None and pd.notna(z_err_val):
@@ -169,7 +192,6 @@ def get_object_data(
             else:
                 z_err_val = None
 
-            # Extract spectrum arrays
             flux = np.array(spectrum.get("flux", [])) if isinstance(spectrum, dict) else np.array([])
             wavelength = np.array(spectrum.get("lambda", [])) if isinstance(spectrum, dict) else np.array([])
             ivar = np.array(spectrum.get("ivar", [])) if isinstance(spectrum, dict) else np.array([])
@@ -187,19 +209,27 @@ def get_object_data(
                 "dec": float(first_row.get("dec_spectra", first_row.get("dec_mentions", 0.0))),
             })
 
-    output_section = caption_record.get("output", {})
+    # Format all candidate captions
+    formatted_captions = []
+    for cap_rec in obj_summary["captions"]:
+        output_sec = cap_rec.get("output", {})
+        formatted_captions.append({
+            "file_index": cap_rec.get("file_index", 0),
+            "model": cap_rec.get("model", "Unknown"),
+            "strategy": cap_rec.get("strategy", "Unknown"),
+            "timestamp": cap_rec.get("timestamp"),
+            "caption": output_sec.get("caption", ""),
+            "thought_summaries": output_sec.get("thought_summaries", []),
+            "is_insufficient": output_sec.get("is_insufficient", False),
+        })
+
     return {
         "index": index,
         "object_key": object_key,
         "dataset_source": dataset_source,
-        "ra": caption_record.get("ra"),
-        "dec": caption_record.get("dec"),
-        "strategy": caption_record.get("strategy"),
-        "model": caption_record.get("model"),
-        "timestamp": caption_record.get("timestamp"),
-        "caption": output_section.get("caption", ""),
-        "thought_summaries": output_section.get("thought_summaries", []),
-        "is_insufficient": output_section.get("is_insufficient", False),
+        "ra": obj_summary.get("ra"),
+        "dec": obj_summary.get("dec"),
         "evidence_quotes": evidence_quotes,
         "observations": observations,
+        "captions": formatted_captions,
     }
