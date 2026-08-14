@@ -97,21 +97,45 @@ def create_spectrum_figure(
         else:
             z_str = f" | z = {z_val:.4f}"
 
-        # Overlay redshifted lines if inside observed spectral range
+        # Overlay redshifted lines as hoverable traces if inside observed spectral range
         if show_line_markers and len(w_clean) > 0:
             w_min, w_max = float(np.min(w_clean)), float(np.max(w_clean))
+            y_bottom = y_min if y_min is not None else float(np.min(f_clean))
+            y_top = y_max if y_max is not None else float(np.max(f_clean))
+
             for line_info in STANDARD_REST_LINES:
                 obs_lambda = line_info["lambda"] * (1.0 + z_val)
                 if w_min <= obs_lambda <= w_max:
-                    fig.add_vline(
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[obs_lambda, obs_lambda],
+                            y=[y_bottom, y_top],
+                            mode="lines",
+                            name=line_info["name"],
+                            line=dict(
+                                color=line_info["color"],
+                                width=1.3,
+                                dash="dot",
+                            ),
+                            opacity=0.8,
+                            hovertemplate=(
+                                f"<b>{line_info['name']}</b><br>"
+                                f"Rest λ: {line_info['lambda']:.2f} Å<br>"
+                                f"Observed λ: {obs_lambda:.2f} Å"
+                                "<extra></extra>"
+                            ),
+                            showlegend=False,
+                        )
+                    )
+                    fig.add_annotation(
                         x=obs_lambda,
-                        line_width=1.2,
-                        line_dash="dot",
-                        line_color=line_info["color"],
-                        opacity=0.75,
-                        annotation_text=line_info["name"],
-                        annotation_position="top",
-                        annotation_font=dict(size=11, color=line_info["color"]),
+                        y=1.0,
+                        yref="paper",
+                        text=line_info["name"],
+                        showarrow=False,
+                        xanchor="center",
+                        yanchor="bottom",
+                        font=dict(size=11, color=line_info["color"]),
                     )
 
     obs_str = f" (Obs {obs_index + 1}/{total_obs})" if total_obs > 1 else ""
