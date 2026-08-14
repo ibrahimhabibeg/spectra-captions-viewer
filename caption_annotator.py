@@ -37,7 +37,7 @@ CSS_CONTENT = """
 .annotator-container {
   position: relative;
   font-family: var(--st-font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
-  line-height: 1.7;
+  line-height: 1.75;
   font-size: 0.98rem;
   color: var(--st-text-color, #1E293B);
   user-select: text;
@@ -51,51 +51,31 @@ CSS_CONTENT = """
   cursor: text;
 }
 
-.caption-text .katex {
-  font-size: 1.05em;
+/* KaTeX Clean Single-Render (Hide accessibility MathML duplicate) */
+.caption-text .katex-mathml {
+  display: none !important;
 }
 
+.caption-text .katex {
+  font-size: 1.04em;
+  font-family: KaTeX_Main, "Times New Roman", serif;
+}
+
+/* Pure Google Docs Highlighter Style */
 .caption-text mark.span-highlight {
-  background-color: rgba(245, 158, 11, 0.28);
+  background-color: rgba(251, 191, 36, 0.32);
   color: inherit;
-  border-bottom: 2px solid #D97706;
+  border-bottom: 2px solid #F59E0B;
   border-radius: 3px;
-  padding: 1px 3px;
+  padding: 1px 2px;
   cursor: pointer;
   position: relative;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s ease, border-bottom-color 0.15s ease;
 }
 
 .caption-text mark.span-highlight:hover {
-  background-color: rgba(245, 158, 11, 0.45);
-}
-
-.caption-text mark.span-highlight .span-tag-badge {
-  font-size: 0.72em;
-  font-weight: 700;
-  background-color: #D97706;
-  color: #FFFFFF;
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-left: 4px;
-  vertical-align: middle;
-  display: inline-flex;
-  align-items: center;
-}
-
-.caption-text mark.span-highlight .span-tag-badge.span-tag-plain {
-  background-color: rgba(100, 116, 139, 0.65);
-  padding: 1px 4px;
-}
-
-.caption-text mark.span-highlight .span-remove-btn {
-  margin-left: 4px;
-  cursor: pointer;
-  font-weight: bold;
-  opacity: 0.8;
-}
-.caption-text mark.span-highlight .span-remove-btn:hover {
-  opacity: 1;
+  background-color: rgba(251, 191, 36, 0.55);
+  border-bottom-color: #D97706;
 }
 
 .popover-box {
@@ -281,6 +261,14 @@ export default function (component) {
       document.head.appendChild(link);
     }
 
+    if (!parentElement.querySelector("#katex-css-inner")) {
+      const innerLink = document.createElement("link");
+      innerLink.id = "katex-css-inner";
+      innerLink.rel = "stylesheet";
+      innerLink.href = "https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css";
+      parentElement.appendChild(innerLink);
+    }
+
     if (!document.getElementById("katex-js")) {
       const script = document.createElement("script");
       script.id = "katex-js";
@@ -299,6 +287,50 @@ export default function (component) {
         }
       }, 50);
     }
+  }
+
+  // Snap start and end to full words, bold syntax, and full LaTeX formulas
+  function snapToWordBoundaries(rawStr, start, end) {
+    if (start < 0) start = 0;
+    if (end > rawStr.length) end = rawStr.length;
+    if (start >= end) return { start, end };
+
+    const isWordChar = (ch) => /[a-zA-Z0-9_\u00C0-\u024F]/.test(ch);
+
+    // 1. Expand start backwards if in the middle of a word
+    while (start > 0 && isWordChar(rawStr[start]) && isWordChar(rawStr[start - 1])) {
+      start--;
+    }
+
+    // 2. Expand end forwards if in the middle of a word
+    while (end < rawStr.length && isWordChar(rawStr[end - 1]) && isWordChar(rawStr[end])) {
+      end++;
+    }
+
+    // 3. Expand if cutting across any LaTeX delimiters ($...$)
+    const latexRegex = /(\\$[^\\$]+\\$)/g;
+    let m;
+    while ((m = latexRegex.exec(rawStr)) !== null) {
+      const lStart = m.index;
+      const lEnd = m.index + m[0].length;
+      if ((start >= lStart && start < lEnd) || (end > lStart && end <= lEnd)) {
+        start = Math.min(start, lStart);
+        end = Math.max(end, lEnd);
+      }
+    }
+
+    // 4. Expand if cutting across bold markdown (**...**)
+    const boldRegex = /(\\*\\*[^\\*]+\\*\\*)/g;
+    while ((m = boldRegex.exec(rawStr)) !== null) {
+      const bStart = m.index;
+      const bEnd = m.index + m[0].length;
+      if ((start >= bStart && start < bEnd) || (end > bStart && end <= bEnd)) {
+        start = Math.min(start, bStart);
+        end = Math.max(end, bEnd);
+      }
+    }
+
+    return { start, end };
   }
 
   // Tokenize a substring into plain, bold, and LaTeX tokens with raw character bounds
@@ -339,7 +371,7 @@ export default function (component) {
     return tokens;
   }
 
-  // Render tokens into HTML with exact data-start and data-end bounds
+  // Render tokens into HTML with exact data-start and data-end bounds and html-only KaTeX
   function renderTokensToHtml(tokens) {
     return tokens
       .map((tok) => {
@@ -348,7 +380,10 @@ export default function (component) {
           let rendered = escapeHtml(tok.text);
           if (katexLoaded && window.katex) {
             try {
-              rendered = window.katex.renderToString(math, { throwOnError: false });
+              rendered = window.katex.renderToString(math, {
+                throwOnError: false,
+                output: "html",
+              });
             } catch (e) {
               rendered = escapeHtml(tok.text);
             }
@@ -369,6 +404,7 @@ export default function (component) {
     return renderTokensToHtml(tokens);
   }
 
+  // Option A: Pure Highlighter Pen (No disruptive badges or buttons injected into the sentence)
   function renderText() {
     if (!annotations || annotations.length === 0) {
       captionEl.innerHTML = renderSegment(rawText, 0);
@@ -388,13 +424,11 @@ export default function (component) {
       }
 
       const snippetHtml = renderSegment(rawText.substring(start, end), start);
-      const tagText = ann.tag ? escapeHtml(ann.tag) : (ann.comment ? "Note" : "");
-      const titleAttr = escapeHtml((ann.tag || "") + (ann.comment ? (ann.tag ? ": " : "") + ann.comment : ""));
-      const badgeClass = ann.tag ? "span-tag-badge" : "span-tag-badge span-tag-plain";
+      const titleAttr = escapeHtml((ann.tag || "") + (ann.comment ? (ann.tag ? ": " : "") + ann.comment : (ann.tag ? "" : "Click to view / edit annotation")));
 
+      // Pure highlight mark without injected text/badges
       html += `<mark class="span-highlight" data-id="${escapeHtml(ann.id)}" data-start="${start}" data-end="${end}" title="${titleAttr}">` +
-              `${snippetHtml}<span class="${badgeClass}">${tagText}` +
-              `<span class="span-remove-btn" data-remove-id="${escapeHtml(ann.id)}" title="Remove annotation">✕</span></span>` +
+              `${snippetHtml}` +
               `</mark>`;
 
       lastIdx = end;
@@ -406,19 +440,11 @@ export default function (component) {
 
     captionEl.innerHTML = html;
 
+    // Attach click listeners to reopen/edit/delete annotations from popover
     captionEl.querySelectorAll(".span-highlight").forEach((mark) => {
       mark.onclick = (e) => {
-        if (e.target.classList.contains("span-remove-btn")) return;
         const annId = mark.getAttribute("data-id");
         openEditPopover(annId, mark);
-      };
-    });
-
-    captionEl.querySelectorAll(".span-remove-btn").forEach((btn) => {
-      btn.onclick = (e) => {
-        e.stopPropagation();
-        const removeId = btn.getAttribute("data-remove-id");
-        removeAnnotation(removeId);
       };
     });
   }
@@ -544,7 +570,6 @@ export default function (component) {
       }
 
       if (startChar === -1 || endChar === -1 || startChar >= endChar) {
-        // Fallback: substring search
         const selText = selection.toString().trim();
         if (!selText || selText.length < 1) return;
         const found = rawText.indexOf(selText);
@@ -555,6 +580,11 @@ export default function (component) {
           return;
         }
       }
+
+      // Snap selection to full words & complete LaTeX tokens
+      const snapped = snapToWordBoundaries(rawText, startChar, endChar);
+      startChar = snapped.start;
+      endChar = snapped.end;
 
       const selectedText = rawText.substring(startChar, endChar);
       if (!selectedText || selectedText.trim().length === 0) return;
@@ -658,7 +688,7 @@ def render_caption_annotator(
 ) -> list[dict]:
     """
     Renders an interactive caption box with full KaTeX math formatting
-    and Google Docs-style span highlighting & annotations.
+    and pure Google Docs-style span highlighting & annotations.
     """
     session_data = st.session_state.get(key, {})
     current_annotations = session_data.get("annotations", [])
