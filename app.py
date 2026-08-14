@@ -60,20 +60,12 @@ def handle_next_obs():
     st.session_state.obs_idx = st.session_state.obs_idx + 1
 
 
-# 1. Top Navigation Bar
-render_nav_header(
-    current_idx=st.session_state.object_idx,
-    total_objects=total_objects,
-    on_prev=handle_prev_object,
-    on_next=handle_next_object,
-)
-
 # Fetch object data for current index
 obj_data = get_object_eval_data(
     objects, desi_df, sdss_df, st.session_state.object_idx
 )
 
-# 2. Top Shared Evidence Section (Plotly Spectrum + Tabs)
+# 1. Top Shared Evidence Section (Plotly Spectrum + Tabs)
 render_shared_evidence(
     obj_data=obj_data,
     current_obs_idx=st.session_state.obs_idx,
@@ -141,7 +133,7 @@ def on_comparison_submit(
         st.error(f"Submission failed: {msg}")
 
 
-# 3. Bottom Evaluation Section (Single vs Multi-Caption Routing)
+# 2. Bottom Evaluation Section (Single vs Multi-Caption Routing)
 captions = obj_data.get("captions", [])
 if len(captions) == 1:
     render_single_caption_eval(obj_data, on_submit=on_single_submit)
@@ -149,3 +141,11 @@ elif len(captions) > 1:
     render_comparison_eval(obj_data, on_submit=on_comparison_submit)
 else:
     st.info("No captions available for this object.")
+
+# 3. Bottom Navigation Toolbar
+render_nav_header(
+    current_idx=st.session_state.object_idx,
+    total_objects=total_objects,
+    on_prev=handle_prev_object,
+    on_next=handle_next_object,
+)
