@@ -155,17 +155,46 @@ def render_shared_evidence(
 
             with tab_reasoning:
                 captions = obj_data.get("captions", [])
-                has_reasoning = False
-                for c_idx, c in enumerate(captions, 1):
+                if not captions:
+                    st.info("No captions available for this object.")
+                elif len(captions) == 1:
+                    c = captions[0]
                     thought_summaries = c.get("thought_summaries", [])
                     if thought_summaries:
-                        has_reasoning = True
-                        label = f"Caption {c_idx} ({c.get('model', 'Model')})" if len(captions) > 1 else "Reasoning steps"
-                        st.markdown(f"**{label}:**")
+                        st.caption(f"Reasoning chain • Model: **{c.get('model', 'N/A')}** • Strategy: `{c.get('strategy', 'N/A')}`")
                         for s_idx, step in enumerate(thought_summaries, 1):
                             st.markdown(f"- **Step {s_idx}:** {step}")
-                if not has_reasoning:
-                    st.info("No explicit chain of thought reasoning provided.")
+                    else:
+                        st.info("No explicit chain of thought reasoning provided.")
+                else:
+                    # Multi-candidate reasoning navigation
+                    candidate_labels = [
+                        f"Candidate {chr(65 + i)} ({c.get('model', 'Model')})"
+                        for i, c in enumerate(captions)
+                    ]
+                    selected_cand_label = st.segmented_control(
+                        "Candidate reasoning selector",
+                        options=candidate_labels,
+                        default=candidate_labels[0],
+                        label_visibility="collapsed",
+                        key=f"reasoning_selector_{obj_data['index']}",
+                    )
+
+                    sel_idx = 0
+                    if selected_cand_label in candidate_labels:
+                        sel_idx = candidate_labels.index(selected_cand_label)
+
+                    sel_caption = captions[sel_idx]
+                    thought_summaries = sel_caption.get("thought_summaries", [])
+                    if thought_summaries:
+                        st.caption(
+                            f"Reasoning chain for **{selected_cand_label}** • "
+                            f"Strategy: `{sel_caption.get('strategy', 'N/A')}` (Row #{sel_caption.get('file_index', 'N/A')})"
+                        )
+                        for s_idx, step in enumerate(thought_summaries, 1):
+                            st.markdown(f"- **Step {s_idx}:** {step}")
+                    else:
+                        st.info(f"No explicit chain of thought reasoning provided for {selected_cand_label}.")
 
 
 def render_single_caption_eval(obj_data: dict, on_submit: callable):
