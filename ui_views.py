@@ -169,7 +169,7 @@ def render_shared_evidence(
                 else:
                     # Multi-candidate reasoning navigation
                     candidate_labels = [
-                        f"Candidate {chr(65 + i)} ({c.get('model', 'Model')})"
+                        f"Candidate {chr(65 + i)} ({c.get('model', 'Model')} / {c.get('strategy', 'N/A')})"
                         for i, c in enumerate(captions)
                     ]
                     selected_cand_label = st.segmented_control(
@@ -188,7 +188,7 @@ def render_shared_evidence(
                     thought_summaries = sel_caption.get("thought_summaries", [])
                     if thought_summaries:
                         st.caption(
-                            f"Reasoning chain for **{selected_cand_label}** • "
+                            f"Reasoning chain for **Candidate {chr(65 + sel_idx)}** ({sel_caption.get('model', 'Model')}) • "
                             f"Strategy: `{sel_caption.get('strategy', 'N/A')}` (Row #{sel_caption.get('file_index', 'N/A')})"
                         )
                         for s_idx, step in enumerate(thought_summaries, 1):
@@ -293,7 +293,9 @@ def render_comparison_eval(obj_data: dict, on_submit: callable):
     with col_a:
         with st.container(border=True):
             st.caption(
-                f"Candidate A • **{cand_a.get('model', 'Model A')}** (Row #{cand_a['file_index']}) • *Select text to highlight*"
+                f"Candidate A • Model: **{cand_a.get('model', 'Model A')}** • "
+                f"Strategy: `{cand_a.get('strategy', 'N/A')}` "
+                f"(Row #{cand_a['file_index']}) • *Select text to highlight*"
             )
             annotations_a = render_caption_annotator(
                 caption_text=cand_a.get("caption", ""),
@@ -320,7 +322,9 @@ def render_comparison_eval(obj_data: dict, on_submit: callable):
     with col_b:
         with st.container(border=True):
             st.caption(
-                f"Candidate B • **{cand_b.get('model', 'Model B')}** (Row #{cand_b['file_index']}) • *Select text to highlight*"
+                f"Candidate B • Model: **{cand_b.get('model', 'Model B')}** • "
+                f"Strategy: `{cand_b.get('strategy', 'N/A')}` "
+                f"(Row #{cand_b['file_index']}) • *Select text to highlight*"
             )
             annotations_b = render_caption_annotator(
                 caption_text=cand_b.get("caption", ""),
