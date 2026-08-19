@@ -8,6 +8,7 @@ import streamlit as st
 
 # Metadata columns (excluding large spectrum structs to minimize RAM usage)
 METADATA_COLS = [
+    "name",
     "wiki_entity_id",
     "object_id",
     "Z",
@@ -223,9 +224,21 @@ def get_object_eval_data(
             "is_insufficient": output_sec.get("is_insufficient", False),
         })
 
+    # Extract primary object name (first non-empty name from parquet matches if available)
+    object_name = None
+    if "name" in matches.columns and not matches["name"].dropna().empty:
+        valid_names = [
+            str(n).strip()
+            for n in matches["name"].dropna()
+            if str(n).strip() and str(n).strip().lower() != "nan"
+        ]
+        if valid_names:
+            object_name = valid_names[0]
+
     return {
         "index": index,
         "object_key": object_key,
+        "object_name": object_name,
         "dataset_source": dataset_source,
         "ra": obj_summary.get("ra"),
         "dec": obj_summary.get("dec"),

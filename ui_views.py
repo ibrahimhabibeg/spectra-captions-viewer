@@ -132,6 +132,8 @@ def render_shared_evidence(
 
                 mcol1, mcol2 = st.columns(2)
                 with mcol1:
+                    st.caption("Object name")
+                    st.markdown(f"**{obj_data.get('object_name') or 'N/A'}**")
                     st.caption("Object key")
                     st.code(obj_data["object_key"])
                     st.caption("Dataset source")
