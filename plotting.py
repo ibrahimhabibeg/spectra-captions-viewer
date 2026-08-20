@@ -2,13 +2,32 @@ import numpy as np
 import plotly.graph_objects as go
 
 # Common rest-frame emission lines (wavelength in Angstroms)
-STANDARD_REST_LINES = [
-    {"name": "[O II]", "lambda": 3728.80, "color": "#C4B5FD"},
-    {"name": "Hβ", "lambda": 4862.68, "color": "#93C5FD"},
-    {"name": "[O III]", "lambda": 5008.24, "color": "#6EE7B7"},
-    {"name": "[N II]", "lambda": 6585.27, "color": "#FDE68A"},
-    {"name": "Hα", "lambda": 6564.61, "color": "#FCA5A5"},
-    {"name": "[S II]", "lambda": 6718.29, "color": "#FDBA74"},
+REST_FRAME_LINES = [
+    # Hydrogen Lyman / Balmer series
+    {"name": "Lyα", "rest_wave": 1215.67, "type": "emission", "color": "#2ca02c"},
+    {"name": "Hδ", "rest_wave": 4101.74, "type": "balmer", "color": "#1f77b4"},
+    {"name": "Hγ", "rest_wave": 4340.47, "type": "balmer", "color": "#1f77b4"},
+    {"name": "Hβ", "rest_wave": 4861.33, "type": "balmer", "color": "#1f77b4"},
+    {"name": "Hα", "rest_wave": 6562.82, "type": "balmer", "color": "#d62728"},
+    # Nebular emission lines (AGN / Star-forming)
+    {"name": "[O II]", "rest_wave": 3727.09, "type": "forbidden", "color": "#9467bd"},
+    {"name": "[O III] 4959", "rest_wave": 4958.91, "type": "forbidden", "color": "#8c564b"},
+    {"name": "[O III] 5007", "rest_wave": 5006.84, "type": "forbidden", "color": "#8c564b"},
+    {"name": "[O I] 6300", "rest_wave": 6300.30, "type": "forbidden", "color": "#e377c2"},
+    {"name": "[N II] 6583", "rest_wave": 6583.45, "type": "forbidden", "color": "#bcbd22"},
+    {"name": "[S II] 6716", "rest_wave": 6716.44, "type": "forbidden", "color": "#17becf"},
+    {"name": "[S II] 6731", "rest_wave": 6730.82, "type": "forbidden", "color": "#17becf"},
+    # UV / Quasar lines
+    {"name": "C IV", "rest_wave": 1549.06, "type": "uv", "color": "#ff7f0e"},
+    {"name": "C III]", "rest_wave": 1908.73, "type": "uv", "color": "#ff7f0e"},
+    {"name": "Mg II", "rest_wave": 2798.75, "type": "uv", "color": "#e377c2"},
+    {"name": "He II", "rest_wave": 4685.70, "type": "emission", "color": "#2ca02c"},
+    # Stellar absorption features
+    {"name": "Ca II K", "rest_wave": 3933.66, "type": "absorption", "color": "#7f7f7f"},
+    {"name": "Ca II H", "rest_wave": 3968.47, "type": "absorption", "color": "#7f7f7f"},
+    {"name": "G-band", "rest_wave": 4304.40, "type": "absorption", "color": "#7f7f7f"},
+    {"name": "Mg I b", "rest_wave": 5175.40, "type": "absorption", "color": "#7f7f7f"},
+    {"name": "Na I D", "rest_wave": 5892.94, "type": "absorption", "color": "#7f7f7f"},
 ]
 
 
@@ -81,11 +100,10 @@ def create_spectrum_figure(
     # Dynamic y-axis percentile limits to avoid spikes crushing the continuum
     y_min, y_max = None, None
     if len(f_clean) > 0:
-        q1, q99 = np.percentile(f_clean, [0.5, 99.5])
-        margin = (q99 - q1) * 0.12
-        if margin > 0:
-            y_min = float(q1 - margin)
-            y_max = float(q99 + margin)
+        p_low, p_high = np.percentile(f_clean, [0.5, 99.5])
+        flux_range = max(p_high - p_low, 1e-4)
+        y_min = float(p_low - 0.08 * flux_range)
+        y_max = float(p_high + 0.35 * flux_range)
 
     # Redshift & Line Markers
     z_val = obs.get("z")
@@ -103,8 +121,8 @@ def create_spectrum_figure(
             y_bottom = y_min if y_min is not None else float(np.min(f_clean))
             y_top = y_max if y_max is not None else float(np.max(f_clean))
 
-            for line_info in STANDARD_REST_LINES:
-                obs_lambda = line_info["lambda"] * (1.0 + z_val)
+            for i, line_info in enumerate(REST_FRAME_LINES):
+                obs_lambda = line_info["rest_wave"] * (1.0 + z_val)
                 if w_min <= obs_lambda <= w_max:
                     fig.add_trace(
                         go.Scatter(
@@ -120,21 +138,26 @@ def create_spectrum_figure(
                             opacity=0.8,
                             hovertemplate=(
                                 f"<b>{line_info['name']}</b><br>"
-                                f"Rest λ: {line_info['lambda']:.2f} Å<br>"
+                                f"Rest λ: {line_info['rest_wave']:.2f} Å<br>"
                                 f"Observed λ: {obs_lambda:.2f} Å"
                                 "<extra></extra>"
                             ),
                             showlegend=False,
                         )
                     )
+                    
+                    # Alternate vertical position to prevent label overlap (zigzag)
+                    y_pos = 0.98 if i % 2 == 0 else 0.88
+                    
                     fig.add_annotation(
                         x=obs_lambda,
-                        y=1.0,
+                        y=y_pos,
                         yref="paper",
                         text=line_info["name"],
                         showarrow=False,
                         xanchor="center",
-                        yanchor="bottom",
+                        yanchor="top",
+                        textangle=-90,
                         font=dict(size=11, color=line_info["color"]),
                     )
 
