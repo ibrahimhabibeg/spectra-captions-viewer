@@ -11,12 +11,42 @@ REST_FRAME_LINES = [
     {"name": "Hα", "rest_wave": 6562.82, "type": "balmer", "color": "#d62728"},
     # Nebular emission lines (AGN / Star-forming)
     {"name": "[O II]", "rest_wave": 3727.09, "type": "forbidden", "color": "#9467bd"},
-    {"name": "[O III] 4959", "rest_wave": 4958.91, "type": "forbidden", "color": "#8c564b"},
-    {"name": "[O III] 5007", "rest_wave": 5006.84, "type": "forbidden", "color": "#8c564b"},
-    {"name": "[O I] 6300", "rest_wave": 6300.30, "type": "forbidden", "color": "#e377c2"},
-    {"name": "[N II] 6583", "rest_wave": 6583.45, "type": "forbidden", "color": "#bcbd22"},
-    {"name": "[S II] 6716", "rest_wave": 6716.44, "type": "forbidden", "color": "#17becf"},
-    {"name": "[S II] 6731", "rest_wave": 6730.82, "type": "forbidden", "color": "#17becf"},
+    {
+        "name": "[O III] 4959",
+        "rest_wave": 4958.91,
+        "type": "forbidden",
+        "color": "#8c564b",
+    },
+    {
+        "name": "[O III] 5007",
+        "rest_wave": 5006.84,
+        "type": "forbidden",
+        "color": "#8c564b",
+    },
+    {
+        "name": "[O I] 6300",
+        "rest_wave": 6300.30,
+        "type": "forbidden",
+        "color": "#e377c2",
+    },
+    {
+        "name": "[N II] 6583",
+        "rest_wave": 6583.45,
+        "type": "forbidden",
+        "color": "#bcbd22",
+    },
+    {
+        "name": "[S II] 6716",
+        "rest_wave": 6716.44,
+        "type": "forbidden",
+        "color": "#17becf",
+    },
+    {
+        "name": "[S II] 6731",
+        "rest_wave": 6730.82,
+        "type": "forbidden",
+        "color": "#17becf",
+    },
     # UV / Quasar lines
     {"name": "C IV", "rest_wave": 1549.06, "type": "uv", "color": "#ff7f0e"},
     {"name": "C III]", "rest_wave": 1908.73, "type": "uv", "color": "#ff7f0e"},
@@ -145,10 +175,10 @@ def create_spectrum_figure(
                             showlegend=False,
                         )
                     )
-                    
+
                     # Alternate vertical position to prevent label overlap (zigzag)
                     y_pos = 0.98 if i % 2 == 0 else 0.88
-                    
+
                     fig.add_annotation(
                         x=obs_lambda,
                         y=y_pos,
@@ -196,3 +226,111 @@ def create_spectrum_figure(
     )
 
     return fig
+
+
+LIGHTCURVE_FILTERS = {
+    "X": ("ZTF g", "#17becf"),
+    "Y": ("ZTF r", "#d62728"),
+    "g": ("PS1 g", "#2ca02c"),
+    "r": ("PS1 r", "#ef553b"),
+    "i": ("PS1 i", "#9467bd"),
+    "z": ("PS1 z", "#bcbd22"),
+}
+
+
+def create_lightcurve_figure(observations: list[dict], object_key: str) -> go.Figure:
+    """Create an interactive multi-band magnitude-versus-MJD lightcurve."""
+    figure = go.Figure()
+    if not observations:
+        figure.add_annotation(
+            text="No lightcurve data available for this object",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=16),
+        )
+        figure.update_layout(
+            template="plotly",
+            height=380,
+            margin=dict(l=55, r=25, t=40, b=45),
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False, showticklabels=False),
+        )
+        return figure
+
+    for band in sorted({row["filter"] for row in observations}):
+        rows = sorted(
+            (row for row in observations if row["filter"] == band),
+            key=lambda row: row["mjd"],
+        )
+        label, color = LIGHTCURVE_FILTERS.get(band, (band, "#636efa"))
+        errors = [
+            row["magnitude_error"]
+            if row.get("magnitude_error") is not None
+            and np.isfinite(row["magnitude_error"])
+            and row["magnitude_error"] >= 0
+            else 0
+            for row in rows
+        ]
+        figure.add_trace(
+            go.Scatter(
+                x=[row["mjd"] for row in rows],
+                y=[row["magnitude"] for row in rows],
+                mode="markers",
+                name=label,
+                marker=dict(size=7, color=color),
+                error_y=dict(
+                    type="data",
+                    array=errors,
+                    visible=True,
+                    color=color,
+                    thickness=1,
+                    width=2,
+                ),
+                customdata=[
+                    [row["flux"], row["flux_error"], row.get("magnitude_error")]
+                    for row in rows
+                ],
+                hovertemplate=(
+                    f"<b>{label}</b><br>"
+                    "MJD: %{x:.3f}<br>"
+                    "Magnitude: %{y:.3f}<br>"
+                    "Flux: %{customdata[0]:.2f} ± %{customdata[1]:.2f}"
+                    "<extra></extra>"
+                ),
+            )
+        )
+
+    figure.update_layout(
+        template="plotly",
+        height=380,
+        margin=dict(l=55, r=25, t=42, b=45),
+        title=dict(
+            text=f"<b>{object_key}</b> — Multi-band lightcurve",
+            font=dict(size=15),
+            x=0.01,
+            y=0.97,
+        ),
+        xaxis=dict(
+            title=dict(text="Modified Julian Date", font=dict(size=13)),
+            tickfont=dict(size=11),
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title=dict(text="Apparent magnitude", font=dict(size=13)),
+            tickfont=dict(size=11),
+            autorange="reversed",
+            zeroline=False,
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+        ),
+        hovermode="closest",
+    )
+    return figure
