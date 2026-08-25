@@ -3,6 +3,7 @@ import json
 import feedback
 from data_loader import load_and_group_objects, parse_lightcurve_prompt
 from plotting import create_lightcurve_figure
+from ui_views import build_pairwise_matrix
 
 
 def test_negative_magnitude_errors_are_omitted_from_plot():
@@ -95,7 +96,7 @@ def test_complete_abc_feedback_is_saved_atomically(tmp_path, monkeypatch):
         modality="lightcurves",
         candidate_file_indices={"A": 0, "B": 1, "C": 2},
         candidates_info={label: {} for label in "ABC"},
-        comparisons={"a_vs_b": "A", "b_vs_c": "C", "c_vs_a": "A"},
+        comparisons={"a_vs_b": "A", "b_vs_c": "Tie", "c_vs_a": "A"},
     )
 
     assert success is True
@@ -104,6 +105,31 @@ def test_complete_abc_feedback_is_saved_atomically(tmp_path, monkeypatch):
     assert record["modality"] == "lightcurves"
     assert record["comparisons"] == {
         "a_vs_b": "A",
-        "b_vs_c": "C",
+        "b_vs_c": "Tie",
         "c_vs_a": "A",
     }
+
+
+def test_pairwise_matrix_shows_better_worse_and_tie():
+    captions = [
+        {"model": "model-a", "strategy": "strategy-a"},
+        {"model": "model-b", "strategy": "strategy-b"},
+        {"model": "model-c", "strategy": "strategy-c"},
+    ]
+
+    matrix = build_pairwise_matrix(
+        captions,
+        {"a_vs_b": "A", "b_vs_c": "Tie", "c_vs_a": "C"},
+    )
+
+    assert matrix[0] == {
+        "Candidate": "A",
+        "Model / strategy": "model-a / strategy-a",
+        "A": "—",
+        "B": "Better",
+        "C": "Worse",
+    }
+    assert matrix[1]["A"] == "Worse"
+    assert matrix[1]["C"] == "Tie"
+    assert matrix[2]["A"] == "Better"
+    assert matrix[2]["B"] == "Tie"

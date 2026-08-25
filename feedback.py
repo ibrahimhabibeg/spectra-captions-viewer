@@ -122,16 +122,16 @@ def submit_abc_feedback(
     note: str | None = None,
     modality: str | None = None,
 ) -> tuple[bool, str]:
-    """Validate and atomically persist all three required pairwise winners."""
+    """Validate and atomically persist all three required pairwise outcomes."""
     required = {
-        "a_vs_b": {"A", "B"},
-        "b_vs_c": {"B", "C"},
-        "c_vs_a": {"C", "A"},
+        "a_vs_b": {"A", "B", "Tie"},
+        "b_vs_c": {"B", "C", "Tie"},
+        "c_vs_a": {"C", "A", "Tie"},
     }
     for comparison, allowed in required.items():
         if comparisons.get(comparison) not in allowed:
             return False, (
-                f"Select a valid winner for {comparison.replace('_', ' ').upper()}."
+                f"Select a valid outcome for {comparison.replace('_', ' ').upper()}."
             )
     if set(candidates_info) != {"A", "B", "C"}:
         return False, "Candidates A, B, and C are required."

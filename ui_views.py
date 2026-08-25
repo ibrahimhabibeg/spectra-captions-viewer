@@ -332,10 +332,49 @@ def _candidate_card(
     }
 
 
+ABC_PAIRS = (
+    ("a_vs_b", "A", "B"),
+    ("b_vs_c", "B", "C"),
+    ("c_vs_a", "C", "A"),
+)
+
+
+def build_pairwise_matrix(captions: list[dict], comparisons: dict) -> list[dict]:
+    """Build a row-oriented Better/Worse/Tie matrix for display and testing."""
+    relations = {
+        row: {column: "—" if row == column else "Pending" for column in "ABC"}
+        for row in "ABC"
+    }
+    for key, left, right in ABC_PAIRS:
+        outcome = comparisons.get(key)
+        if outcome == "Tie":
+            relations[left][right] = "Tie"
+            relations[right][left] = "Tie"
+        elif outcome == left:
+            relations[left][right] = "Better"
+            relations[right][left] = "Worse"
+        elif outcome == right:
+            relations[left][right] = "Worse"
+            relations[right][left] = "Better"
+
+    rows = []
+    for label, caption in zip("ABC", captions):
+        model = caption.get("model", "N/A")
+        strategy = caption.get("strategy", "N/A")
+        rows.append(
+            {
+                "Candidate": label,
+                "Model / strategy": f"{model} / {strategy}",
+                **relations[label],
+            }
+        )
+    return rows
+
+
 def render_abc_comparison_eval(
     obj_data: dict, on_submit: callable, key_prefix: str = ""
 ):
-    """Render three candidates and require A/B, B/C, and C/A winners."""
+    """Render three candidates, three head-to-head outcomes, and a final matrix."""
     captions = obj_data["captions"]
     object_index = obj_data["index"]
     evaluations = {}
@@ -347,21 +386,22 @@ def render_abc_comparison_eval(
             )
 
     with st.container(border=True):
-        st.caption("Required pairwise winners")
+        st.caption("Required head-to-head comparisons")
         pair_columns = st.columns(3, gap="medium")
         comparisons = {}
-        for column, key, options, label in zip(
-            pair_columns,
-            ("a_vs_b", "b_vs_c", "c_vs_a"),
-            (["A", "B"], ["B", "C"], ["C", "A"]),
-            ("A vs B", "B vs C", "C vs A"),
-        ):
+        for column, (key, left, right) in zip(pair_columns, ABC_PAIRS):
             with column:
                 comparisons[key] = st.segmented_control(
-                    label,
-                    options=options,
+                    f"{left} vs {right} head-to-head",
+                    options=[left, "Tie", right],
                     key=f"{key_prefix}_{key}_{object_index}",
                 )
+
+        st.caption("Final head-to-head matrix")
+        st.table(build_pairwise_matrix(captions, comparisons))
+        st.caption(
+            "Each cell describes the row candidate relative to the column candidate."
+        )
 
         note_col, submit_col = st.columns(
             [2.5, 1], vertical_alignment="bottom", gap="medium"
@@ -380,6 +420,7 @@ def render_abc_comparison_eval(
                 icon=":material/send:",
                 key=f"{key_prefix}_abc_submit_{object_index}",
                 width="stretch",
+                disabled=any(value is None for value in comparisons.values()),
             )
 
         if clicked:
@@ -393,7 +434,7 @@ def render_abc_comparison_eval(
                 if comparisons[key] is None
             ]
             if missing:
-                st.error("Select a winner for " + ", ".join(missing) + ".")
+                st.error("Select an outcome for " + ", ".join(missing) + ".")
             else:
                 on_submit(
                     candidate_file_indices={
