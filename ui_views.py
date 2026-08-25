@@ -1,3 +1,4 @@
+import pandas as pd
 import streamlit as st
 
 from caption_annotator import render_caption_annotator
@@ -371,6 +372,37 @@ def build_pairwise_matrix(captions: list[dict], comparisons: dict) -> list[dict]
     return rows
 
 
+def pairwise_cell_style(value: str) -> str:
+    """Color the compact relationship symbols used by the final matrix."""
+    colors = {
+        "↑": "#16a34a",
+        "-": "#6b7280",
+        "↓": "#dc2626",
+        "…": "#9ca3af",
+        "·": "#9ca3af",
+    }
+    color = colors.get(value, "inherit")
+    return f"color: {color}; font-weight: 700; font-size: 1.2rem;"
+
+
+def style_pairwise_matrix(captions: list[dict], comparisons: dict):
+    """Convert semantic relations into an accessible, color-coded matrix."""
+    frame = pd.DataFrame(build_pairwise_matrix(captions, comparisons)).replace(
+        {
+            "Better": "↑",
+            "Worse": "↓",
+            "Tie": "-",
+            "Pending": "…",
+            "—": "·",
+        }
+    )
+    return (
+        frame.style.map(pairwise_cell_style, subset=["A", "B", "C"])
+        .set_properties(subset=["A", "B", "C"], **{"text-align": "center"})
+        .hide(axis="index")
+    )
+
+
 def render_abc_comparison_eval(
     obj_data: dict, on_submit: callable, key_prefix: str = ""
 ):
@@ -398,7 +430,7 @@ def render_abc_comparison_eval(
                 )
 
         st.caption("Final head-to-head matrix")
-        st.table(build_pairwise_matrix(captions, comparisons))
+        st.table(style_pairwise_matrix(captions, comparisons))
         st.caption(
             "Each cell describes the row candidate relative to the column candidate."
         )
