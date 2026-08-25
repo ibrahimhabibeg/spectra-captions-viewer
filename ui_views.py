@@ -1,8 +1,9 @@
+import pandas as pd
 import streamlit as st
-from caption_annotator import render_caption_annotator
-from plotting import create_spectrum_figure
 
-# Standard diagnostic tags for single and comparative evaluation
+from caption_annotator import render_caption_annotator
+from plotting import create_lightcurve_figure, create_spectrum_figure
+
 DIAGNOSTIC_TAGS = [
     "Accurate lines",
     "Correct class",
@@ -18,37 +19,71 @@ def render_nav_header(
     total_objects: int,
     on_prev: callable,
     on_next: callable,
+    key_prefix: str = "",
 ):
-    """Renders the top navigation toolbar with object counter and progress indicator."""
+    """Render the branch's bordered object navigation and progress bar."""
     with st.container(border=True):
-        col1, col2, col3 = st.columns([1, 2, 1], vertical_alignment="center")
-        with col1:
+        previous_col, progress_col, next_col = st.columns(
+            [1, 2, 1], vertical_alignment="center"
+        )
+        with previous_col:
             st.button(
                 "Previous object",
                 icon=":material/arrow_back:",
-                disabled=(current_idx <= 0),
-                key="nav_prev_btn",
+                disabled=current_idx <= 0,
+                key=f"{key_prefix}_nav_prev_btn",
                 on_click=on_prev,
             )
-
-        with col2:
-            progress_ratio = (current_idx + 1) / max(total_objects, 1)
+        with progress_col:
             st.markdown(
-                f"<div style='text-align: center; font-weight: 600;'>"
+                "<div style='text-align:center;font-weight:600;'>"
                 f"Object {current_idx + 1} of {total_objects}</div>",
                 unsafe_allow_html=True,
             )
-            st.progress(progress_ratio)
-
-        with col3:
+            st.progress((current_idx + 1) / max(total_objects, 1))
+        with next_col:
             st.button(
                 "Next object",
                 icon=":material/arrow_forward:",
-                disabled=(current_idx >= total_objects - 1),
+                disabled=current_idx >= total_objects - 1,
                 type="secondary",
-                key="nav_next_btn",
+                key=f"{key_prefix}_nav_next_btn",
                 on_click=on_next,
             )
+
+
+def _render_reasoning(obj_data: dict, key_prefix: str):
+    captions = obj_data.get("captions", [])
+    if not captions:
+        st.info("No captions available for this object.")
+        return
+
+    labels = [
+        f"Candidate {chr(65 + index)} ({caption.get('model', 'Model')} / "
+        f"{caption.get('strategy', 'N/A')})"
+        for index, caption in enumerate(captions)
+    ]
+    selected = st.segmented_control(
+        "Candidate reasoning selector",
+        options=labels,
+        default=labels[0],
+        label_visibility="collapsed",
+        key=f"{key_prefix}_reasoning_selector_{obj_data['index']}",
+    )
+    selected_index = labels.index(selected) if selected in labels else 0
+    caption = captions[selected_index]
+    thoughts = caption.get("thought_summaries", [])
+    if not thoughts:
+        st.info(f"No explicit reasoning summary provided for {labels[selected_index]}.")
+        return
+
+    st.caption(
+        f"Reasoning for **Candidate {chr(65 + selected_index)}** "
+        f"({caption.get('model', 'Model')}) • "
+        f"Strategy: `{caption.get('strategy', 'N/A')}`"
+    )
+    for step_index, step in enumerate(thoughts, 1):
+        st.markdown(f"- **Step {step_index}:** {step}")
 
 
 def render_shared_evidence(
@@ -56,356 +91,450 @@ def render_shared_evidence(
     current_obs_idx: int,
     on_prev_obs: callable,
     on_next_obs: callable,
+    key_prefix: str = "",
 ):
-    """
-    Renders Top Section (Option B):
-    Left: Interactive Plotly Spectrum plot.
-    Right: Compact Tabbed Evidence & Target Information.
-    """
+    """Render spectral or lightcurve evidence in the existing two-column layout."""
+    modality = obj_data.get("modality", "spectra")
     observations = obj_data.get("observations", [])
-    total_obs = len(observations)
-    current_obs = observations[min(current_obs_idx, total_obs - 1)] if total_obs > 0 else {}
+    total_observations = len(observations)
+    active_index = (
+        min(current_obs_idx, total_observations - 1) if total_observations else 0
+    )
+    current_observation = observations[active_index] if total_observations else {}
     quotes = obj_data.get("evidence_quotes", [])
+    evidence_links = obj_data.get("evidence_links", {})
 
-    col_plot, col_info = st.columns([1.15, 0.85], gap="medium")
-
-    # 1. Left: Interactive Spectral Observation
-    with col_plot:
-        with st.container(border=True):
-            active_obs_idx = min(current_obs_idx, total_obs - 1) if total_obs > 0 else 0
-            fig = create_spectrum_figure(
-                current_obs,
+    plot_col, info_col = st.columns([1.15, 0.85], gap="medium")
+    with plot_col, st.container(border=True):
+        if modality == "lightcurves":
+            figure = create_lightcurve_figure(
+                obj_data.get("lightcurve", []), obj_data["object_key"]
+            )
+        else:
+            figure = create_spectrum_figure(
+                current_observation,
                 obj_data["object_key"],
                 obj_data["dataset_source"],
-                obs_index=active_obs_idx,
-                total_obs=total_obs,
+                obs_index=active_index,
+                total_obs=total_observations,
             )
-            st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+        st.plotly_chart(figure, width="stretch", config={"displaylogo": False})
 
-            # Observation pager for multi-observation targets
-            if total_obs > 1:
-                ocol1, ocol2, ocol3 = st.columns([1, 2, 1], vertical_alignment="center")
-                with ocol1:
-                    st.button(
-                        "Prev obs",
-                        icon=":material/arrow_back:",
-                        disabled=(current_obs_idx <= 0),
-                        key="prev_obs_btn",
-                        on_click=on_prev_obs,
-                    )
-                with ocol2:
-                    st.caption(
-                        f"Observation {active_obs_idx + 1} of {total_obs} (ID: {current_obs.get('object_id', 'N/A')})"
-                    )
-                with ocol3:
-                    st.button(
-                        "Next obs",
-                        icon=":material/arrow_forward:",
-                        disabled=(current_obs_idx >= total_obs - 1),
-                        key="next_obs_btn",
-                        on_click=on_next_obs,
-                    )
-
-    # 2. Right: Evidence Tabs (Metadata, Literature Quotes, Model Reasoning)
-    with col_info:
-        with st.container(border=True):
-            tab_meta, tab_quotes, tab_reasoning = st.tabs([
-                "Target metadata",
-                f"Literature quotes ({len(quotes)})",
-                "Model reasoning",
-            ])
-
-            with tab_meta:
-                z_val = current_obs.get("z")
-                z_err = current_obs.get("z_err")
-                z_str = "N/A"
-                if z_val is not None:
-                    z_str = f"{z_val:.4f} ± {z_err:.4f}" if z_err is not None else f"{z_val:.4f}"
-
-                ra_val = obj_data.get("ra", "N/A")
-                dec_val = obj_data.get("dec", "N/A")
-                coords_str = (
-                    f"{ra_val:.4f}°, {dec_val:.4f}°"
-                    if isinstance(ra_val, float) and isinstance(dec_val, float)
-                    else "N/A"
+        if modality == "spectra" and total_observations > 1:
+            prev_col, status_col, next_col = st.columns(
+                [1, 2, 1], vertical_alignment="center"
+            )
+            with prev_col:
+                st.button(
+                    "Prev obs",
+                    icon=":material/arrow_back:",
+                    disabled=current_obs_idx <= 0,
+                    key=f"{key_prefix}_prev_obs_btn",
+                    on_click=on_prev_obs,
+                )
+            with status_col:
+                st.caption(
+                    f"Observation {active_index + 1} of {total_observations} "
+                    f"(ID: {current_observation.get('object_id', 'N/A')})"
+                )
+            with next_col:
+                st.button(
+                    "Next obs",
+                    icon=":material/arrow_forward:",
+                    disabled=current_obs_idx >= total_observations - 1,
+                    key=f"{key_prefix}_next_obs_btn",
+                    on_click=on_next_obs,
                 )
 
-                mcol1, mcol2 = st.columns(2)
-                with mcol1:
+    with info_col:
+        with st.container(border=True):
+            evidence_count = len(quotes) or len(evidence_links)
+            metadata_tab, evidence_tab, reasoning_tab = st.tabs(
+                [
+                    "Target metadata",
+                    f"Linked evidence ({evidence_count})",
+                    "Model reasoning",
+                ]
+            )
+            with metadata_tab:
+                left, right = st.columns(2)
+                with left:
                     st.caption("Object name")
                     st.markdown(f"**{obj_data.get('object_name') or 'N/A'}**")
                     st.caption("Object key")
                     st.code(obj_data["object_key"])
                     st.caption("Dataset source")
-                    st.markdown(f"**{obj_data['dataset_source'].upper()}**")
-                with mcol2:
-                    st.caption("Redshift (z)")
-                    st.markdown(f"**{z_str}**")
-                    st.caption("Coordinates")
-                    st.markdown(f"**{coords_str}**")
+                    st.markdown(f"**{obj_data['dataset_source']}**")
+                with right:
+                    if modality == "lightcurves":
+                        lightcurve = obj_data.get("lightcurve", [])
+                        st.caption("Photometric observations")
+                        st.markdown(f"**{len(lightcurve)}**")
+                        st.caption("Filters")
+                        filters = sorted({row["filter"] for row in lightcurve})
+                        st.markdown(f"**{', '.join(filters) if filters else 'N/A'}**")
+                    else:
+                        z_value = current_observation.get("z")
+                        z_error = current_observation.get("z_err")
+                        z_text = "N/A"
+                        if z_value is not None:
+                            z_text = (
+                                f"{z_value:.4f} ± {z_error:.4f}"
+                                if z_error is not None
+                                else f"{z_value:.4f}"
+                            )
+                        ra_value = obj_data.get("ra")
+                        dec_value = obj_data.get("dec")
+                        coordinates = (
+                            f"{ra_value:.4f}°, {dec_value:.4f}°"
+                            if isinstance(ra_value, float)
+                            and isinstance(dec_value, float)
+                            else "N/A"
+                        )
+                        st.caption("Redshift (z)")
+                        st.markdown(f"**{z_text}**")
+                        st.caption("Coordinates")
+                        st.markdown(f"**{coordinates}**")
 
-            with tab_quotes:
+            with evidence_tab:
                 if quotes:
-                    for idx, q in enumerate(quotes, 1):
+                    for index, quote in enumerate(quotes, 1):
                         with st.container(border=True):
                             st.caption(
-                                f"Quote #{idx} • arXiv: [{q['arxiv_id']}](https://arxiv.org/abs/{q['arxiv_id']})"
+                                f"Quote #{index} • arXiv: "
+                                f"[{quote['arxiv_id']}](https://arxiv.org/abs/{quote['arxiv_id']})"
                             )
-                            st.markdown(f"*{q['quote']}*")
+                            st.markdown(f"*{quote['quote']}*")
+                elif evidence_links:
+                    for atel_id, url in evidence_links.items():
+                        st.markdown(f"- [Astronomer's Telegram #{atel_id}]({url})")
                 else:
-                    st.info("No crossmatched literature quotes found for this object.")
+                    st.info("No linked evidence is available for this object.")
 
-            with tab_reasoning:
-                captions = obj_data.get("captions", [])
-                if not captions:
-                    st.info("No captions available for this object.")
-                elif len(captions) == 1:
-                    c = captions[0]
-                    thought_summaries = c.get("thought_summaries", [])
-                    if thought_summaries:
-                        st.caption(f"Reasoning chain • Model: **{c.get('model', 'N/A')}** • Strategy: `{c.get('strategy', 'N/A')}`")
-                        for s_idx, step in enumerate(thought_summaries, 1):
-                            st.markdown(f"- **Step {s_idx}:** {step}")
-                    else:
-                        st.info("No explicit chain of thought reasoning provided.")
-                else:
-                    # Multi-candidate reasoning navigation
-                    candidate_labels = [
-                        f"Candidate {chr(65 + i)} ({c.get('model', 'Model')} / {c.get('strategy', 'N/A')})"
-                        for i, c in enumerate(captions)
-                    ]
-                    selected_cand_label = st.segmented_control(
-                        "Candidate reasoning selector",
-                        options=candidate_labels,
-                        default=candidate_labels[0],
-                        label_visibility="collapsed",
-                        key=f"reasoning_selector_{obj_data['index']}",
-                    )
-
-                    sel_idx = 0
-                    if selected_cand_label in candidate_labels:
-                        sel_idx = candidate_labels.index(selected_cand_label)
-
-                    sel_caption = captions[sel_idx]
-                    thought_summaries = sel_caption.get("thought_summaries", [])
-                    if thought_summaries:
-                        st.caption(
-                            f"Reasoning chain for **Candidate {chr(65 + sel_idx)}** ({sel_caption.get('model', 'Model')}) • "
-                            f"Strategy: `{sel_caption.get('strategy', 'N/A')}` (Row #{sel_caption.get('file_index', 'N/A')})"
-                        )
-                        for s_idx, step in enumerate(thought_summaries, 1):
-                            st.markdown(f"- **Step {s_idx}:** {step}")
-                    else:
-                        st.info(f"No explicit chain of thought reasoning provided for {selected_cand_label}.")
+            with reasoning_tab:
+                _render_reasoning(obj_data, key_prefix)
 
 
-def render_single_caption_eval(obj_data: dict, on_submit: callable):
-    """
-    Renders evaluation interface for single-caption objects.
-    Features: Interactive text span highlighter + inline evaluation bar with Submit & Next.
-    """
-    caption_obj = obj_data["captions"][0]
-    obj_idx = obj_data["index"]
-
-    # 1. Interactive Caption Card with Google Docs-style Highlighting
+def render_single_caption_eval(
+    obj_data: dict, on_submit: callable, key_prefix: str = ""
+):
+    caption = obj_data["captions"][0]
+    object_index = obj_data["index"]
     with st.container(border=True):
         st.caption(
-            f"AI-Generated Caption • Model: **{caption_obj.get('model', 'N/A')}** • "
-            f"Strategy: `{caption_obj.get('strategy', 'N/A')}` "
-            f"(Source row #{caption_obj['file_index']}) • *Select text with mouse to add span annotations*"
+            f"AI-Generated Caption • Model: **{caption.get('model', 'N/A')}** • "
+            f"Strategy: `{caption.get('strategy', 'N/A')}` "
+            f"(Source row #{caption['file_index']}) • "
+            "*Select text with mouse to add span annotations*"
         )
-        if caption_obj.get("is_insufficient"):
-            st.error("Insufficient spectral data for caption generation", icon=":material/warning:")
-
-        # Bi-directional CCv2 text annotator
-        annotations = render_caption_annotator(
-            caption_text=caption_obj.get("caption", ""),
-            key=f"annotator_single_{obj_idx}",
-        )
-
-    # 2. Evaluation Action Bar
-    with st.container(border=True):
-        eval_col1, eval_col2 = st.columns([1.2, 1.8], gap="medium")
-
-        with eval_col1:
-            st.caption("Rating")
-            selected_rating = st.segmented_control(
-                "Rating",
-                options=[":material/thumb_up: Good", ":material/thumb_down: Needs work"],
-                label_visibility="collapsed",
-                key=f"rating_single_{obj_idx}",
+        if caption.get("is_insufficient"):
+            st.error(
+                "Insufficient data for caption generation", icon=":material/warning:"
             )
+        annotations = render_caption_annotator(
+            caption_text=caption.get("caption", ""),
+            key=f"{key_prefix}_annotator_single_{object_index}",
+        )
 
-        with eval_col2:
+    with st.container(border=True):
+        rating_col, tags_col = st.columns([1.2, 1.8], gap="medium")
+        with rating_col:
+            st.caption("Rating")
+            rating = st.segmented_control(
+                "Rating",
+                options=[
+                    ":material/thumb_up: Good",
+                    ":material/thumb_down: Needs work",
+                ],
+                label_visibility="collapsed",
+                key=f"{key_prefix}_rating_single_{object_index}",
+            )
+        with tags_col:
             st.caption("Diagnostic tags (optional)")
-            selected_tags = st.pills(
+            tags = st.pills(
                 "Diagnostic tags",
                 options=DIAGNOSTIC_TAGS,
                 selection_mode="multi",
                 label_visibility="collapsed",
-                key=f"tags_single_{obj_idx}",
+                key=f"{key_prefix}_tags_single_{object_index}",
             )
 
-        # Notes and Submit Button Row
-        note_col, submit_col = st.columns([2.5, 1], vertical_alignment="bottom", gap="medium")
+        note_col, submit_col = st.columns(
+            [2.5, 1], vertical_alignment="bottom", gap="medium"
+        )
         with note_col:
-            note_input = st.text_input(
+            note = st.text_input(
                 "Reviewer notes (optional)",
-                placeholder="Optional feedback on accuracy, hallucinations, missing details...",
-                key=f"note_single_{obj_idx}",
+                placeholder="Optional feedback on accuracy or missing details...",
+                key=f"{key_prefix}_note_single_{object_index}",
                 label_visibility="collapsed",
             )
-
         with submit_col:
             if st.button(
                 "Submit & next",
                 type="primary",
                 icon=":material/send:",
-                key=f"submit_single_btn_{obj_idx}",
+                key=f"{key_prefix}_submit_single_{object_index}",
                 width="stretch",
             ):
-                rating_val = None
-                if selected_rating:
-                    rating_val = "thumbs_up" if "Good" in selected_rating else "thumbs_down"
-
                 on_submit(
-                    caption_file_index=caption_obj["file_index"],
-                    model=caption_obj.get("model", ""),
-                    strategy=caption_obj.get("strategy", ""),
-                    rating=rating_val,
-                    tags=selected_tags or [],
+                    caption_file_index=caption["file_index"],
+                    model=caption.get("model", ""),
+                    strategy=caption.get("strategy", ""),
+                    rating=(
+                        "thumbs_up"
+                        if rating and "Good" in rating
+                        else "thumbs_down"
+                        if rating
+                        else None
+                    ),
+                    tags=tags or [],
                     span_annotations=annotations or [],
-                    note=note_input,
+                    note=note,
                 )
 
 
-def render_comparison_eval(obj_data: dict, on_submit: callable):
-    """
-    Renders comparative evaluation interface for 2+ candidate captions.
-    Features: Side-by-side candidate cards with span highlighters + independent ratings/tags + Head-to-Head vote.
-    """
-    captions = obj_data["captions"]
-    cand_a = captions[0]
-    cand_b = captions[1]
-    obj_idx = obj_data["index"]
-
-    # 1. Side-by-Side Candidate Cards
-    col_a, col_b = st.columns(2, gap="medium")
-
-    with col_a:
-        with st.container(border=True):
-            st.caption(
-                f"Candidate A • Model: **{cand_a.get('model', 'Model A')}** • "
-                f"Strategy: `{cand_a.get('strategy', 'N/A')}` "
-                f"(Row #{cand_a['file_index']}) • *Select text to highlight*"
-            )
-            annotations_a = render_caption_annotator(
-                caption_text=cand_a.get("caption", ""),
-                key=f"annotator_comp_a_{obj_idx}",
-            )
-
-            st.divider()
-            st.caption("Candidate A rating")
-            rating_a = st.segmented_control(
-                "Candidate A rating",
-                options=[":material/thumb_up: Good", ":material/thumb_down: Flawed"],
-                label_visibility="collapsed",
-                key=f"rating_comp_a_{obj_idx}",
-            )
-            st.caption("Candidate A tags")
-            tags_a = st.pills(
-                "Candidate A tags",
-                options=DIAGNOSTIC_TAGS,
-                selection_mode="multi",
-                label_visibility="collapsed",
-                key=f"tags_comp_a_{obj_idx}",
-            )
-
-    with col_b:
-        with st.container(border=True):
-            st.caption(
-                f"Candidate B • Model: **{cand_b.get('model', 'Model B')}** • "
-                f"Strategy: `{cand_b.get('strategy', 'N/A')}` "
-                f"(Row #{cand_b['file_index']}) • *Select text to highlight*"
-            )
-            annotations_b = render_caption_annotator(
-                caption_text=cand_b.get("caption", ""),
-                key=f"annotator_comp_b_{obj_idx}",
-            )
-
-            st.divider()
-            st.caption("Candidate B rating")
-            rating_b = st.segmented_control(
-                "Candidate B rating",
-                options=[":material/thumb_up: Good", ":material/thumb_down: Flawed"],
-                label_visibility="collapsed",
-                key=f"rating_comp_b_{obj_idx}",
-            )
-            st.caption("Candidate B tags")
-            tags_b = st.pills(
-                "Candidate B tags",
-                options=DIAGNOSTIC_TAGS,
-                selection_mode="multi",
-                label_visibility="collapsed",
-                key=f"tags_comp_b_{obj_idx}",
-            )
-
-    # 2. Head-to-Head Comparative Vote & Submission
+def _candidate_card(
+    caption: dict, label: str, object_index: int, key_prefix: str
+) -> dict:
     with st.container(border=True):
-        st.caption("Head-to-head winner")
-        vote_choice = st.segmented_control(
-            "Comparative vote",
-            options=[
-                ":material/arrow_back: Candidate A is better",
-                ":material/handshake: Both equal / tie",
-                ":material/arrow_forward: Candidate B is better",
-                ":material/thumb_down: Both poor",
-            ],
-            label_visibility="collapsed",
-            key=f"vote_choice_{obj_idx}",
+        st.caption(
+            f"Candidate {label} • Model: **{caption.get('model', 'N/A')}** • "
+            f"Strategy: `{caption.get('strategy', 'N/A')}`"
+        )
+        if caption.get("is_insufficient"):
+            st.error("Insufficient data", icon=":material/warning:")
+        annotations = render_caption_annotator(
+            caption_text=caption.get("caption", ""),
+            key=f"{key_prefix}_annotator_{label}_{object_index}",
+        )
+        st.divider()
+        rating = st.segmented_control(
+            f"Candidate {label} rating",
+            options=[":material/thumb_up: Good", ":material/thumb_down: Flawed"],
+            key=f"{key_prefix}_rating_{label}_{object_index}",
+        )
+        tags = st.pills(
+            f"Candidate {label} tags",
+            options=DIAGNOSTIC_TAGS,
+            selection_mode="multi",
+            key=f"{key_prefix}_tags_{label}_{object_index}",
+        )
+    return {
+        "rating": (
+            "thumbs_up"
+            if rating and "Good" in rating
+            else "thumbs_down"
+            if rating
+            else None
+        ),
+        "tags": tags or [],
+        "span_annotations": annotations or [],
+    }
+
+
+ABC_PAIRS = (
+    ("a_vs_b", "A", "B"),
+    ("b_vs_c", "B", "C"),
+    ("c_vs_a", "C", "A"),
+)
+
+
+def build_pairwise_matrix(captions: list[dict], comparisons: dict) -> list[dict]:
+    """Build a row-oriented Better/Worse/Tie matrix for display and testing."""
+    relations = {
+        row: {column: "—" if row == column else "Pending" for column in "ABC"}
+        for row in "ABC"
+    }
+    for key, left, right in ABC_PAIRS:
+        outcome = comparisons.get(key)
+        if outcome == "Tie":
+            relations[left][right] = "Tie"
+            relations[right][left] = "Tie"
+        elif outcome == left:
+            relations[left][right] = "Better"
+            relations[right][left] = "Worse"
+        elif outcome == right:
+            relations[left][right] = "Worse"
+            relations[right][left] = "Better"
+
+    rows = []
+    for label, caption in zip("ABC", captions):
+        model = caption.get("model", "N/A")
+        strategy = caption.get("strategy", "N/A")
+        rows.append(
+            {
+                "Candidate": label,
+                "Model / strategy": f"{model} / {strategy}",
+                **relations[label],
+            }
+        )
+    return rows
+
+
+def pairwise_cell_style(value: str) -> str:
+    """Color the compact relationship symbols used by the final matrix."""
+    colors = {
+        "↑": "#16a34a",
+        "-": "#6b7280",
+        "↓": "#dc2626",
+        "…": "#9ca3af",
+        "·": "#9ca3af",
+    }
+    color = colors.get(value, "inherit")
+    return f"color: {color}; font-weight: 700; font-size: 1.2rem;"
+
+
+def style_pairwise_matrix(captions: list[dict], comparisons: dict):
+    """Convert semantic relations into an accessible, color-coded matrix."""
+    frame = pd.DataFrame(build_pairwise_matrix(captions, comparisons)).replace(
+        {
+            "Better": "↑",
+            "Worse": "↓",
+            "Tie": "-",
+            "Pending": "…",
+            "—": "·",
+        }
+    )
+    return (
+        frame.style.map(pairwise_cell_style, subset=["A", "B", "C"])
+        .set_properties(subset=["A", "B", "C"], **{"text-align": "center"})
+        .hide(axis="index")
+    )
+
+
+def render_abc_comparison_eval(
+    obj_data: dict, on_submit: callable, key_prefix: str = ""
+):
+    """Render three candidates, three head-to-head outcomes, and a final matrix."""
+    captions = obj_data["captions"]
+    object_index = obj_data["index"]
+    evaluations = {}
+    columns = st.columns(3, gap="medium")
+    for column, label, caption in zip(columns, ("A", "B", "C"), captions):
+        with column:
+            evaluations[label] = _candidate_card(
+                caption, label, object_index, key_prefix
+            )
+
+    with st.container(border=True):
+        st.caption("Required head-to-head comparisons")
+        pair_columns = st.columns(3, gap="medium")
+        comparisons = {}
+        for column, (key, left, right) in zip(pair_columns, ABC_PAIRS):
+            with column:
+                comparisons[key] = st.segmented_control(
+                    f"{left} vs {right} head-to-head",
+                    options=[left, "Tie", right],
+                    key=f"{key_prefix}_{key}_{object_index}",
+                )
+
+        st.caption("Final head-to-head matrix")
+        st.table(style_pairwise_matrix(captions, comparisons))
+        st.caption(
+            "Each cell describes the row candidate relative to the column candidate."
         )
 
-        note_col, submit_col = st.columns([2.5, 1], vertical_alignment="bottom", gap="medium")
+        note_col, submit_col = st.columns(
+            [2.5, 1], vertical_alignment="bottom", gap="medium"
+        )
         with note_col:
-            comp_note = st.text_input(
+            note = st.text_input(
                 "Comparative notes (optional)",
-                placeholder="Optional notes on why one candidate was preferred over the other...",
-                key=f"note_comp_{obj_idx}",
+                placeholder="Optional notes on why candidates were preferred...",
+                key=f"{key_prefix}_abc_note_{object_index}",
                 label_visibility="collapsed",
             )
+        with submit_col:
+            clicked = st.button(
+                "Submit & next",
+                type="primary",
+                icon=":material/send:",
+                key=f"{key_prefix}_abc_submit_{object_index}",
+                width="stretch",
+                disabled=any(value is None for value in comparisons.values()),
+            )
 
+        if clicked:
+            missing = [
+                label
+                for key, label in (
+                    ("a_vs_b", "A vs B"),
+                    ("b_vs_c", "B vs C"),
+                    ("c_vs_a", "C vs A"),
+                )
+                if comparisons[key] is None
+            ]
+            if missing:
+                st.error("Select an outcome for " + ", ".join(missing) + ".")
+            else:
+                on_submit(
+                    candidate_file_indices={
+                        label: caption["file_index"]
+                        for label, caption in zip(("A", "B", "C"), captions)
+                    },
+                    candidates_info={
+                        label: {
+                            "model": caption.get("model", ""),
+                            "strategy": caption.get("strategy", ""),
+                            "caption": caption.get("caption", ""),
+                        }
+                        for label, caption in zip(("A", "B", "C"), captions)
+                    },
+                    comparisons=comparisons,
+                    candidates_eval=evaluations,
+                    note=note,
+                )
+
+
+def render_comparison_eval(obj_data: dict, on_submit: callable, key_prefix: str = ""):
+    """Retain the branch's two-candidate evaluator for legacy datasets."""
+    captions = obj_data["captions"][:2]
+    object_index = obj_data["index"]
+    evaluations = {}
+    columns = st.columns(2, gap="medium")
+    for column, label, caption in zip(columns, ("A", "B"), captions):
+        with column:
+            evaluations[label] = _candidate_card(
+                caption, label, object_index, key_prefix
+            )
+
+    with st.container(border=True):
+        vote = st.segmented_control(
+            "Head-to-head winner",
+            options=["A", "Tie", "B", "Both poor"],
+            key=f"{key_prefix}_legacy_vote_{object_index}",
+        )
+        note_col, submit_col = st.columns(
+            [2.5, 1], vertical_alignment="bottom", gap="medium"
+        )
+        with note_col:
+            note = st.text_input(
+                "Comparative notes (optional)",
+                key=f"{key_prefix}_legacy_note_{object_index}",
+                label_visibility="collapsed",
+            )
         with submit_col:
             if st.button(
                 "Submit & next",
                 type="primary",
                 icon=":material/send:",
-                key=f"submit_comp_btn_{obj_idx}",
+                key=f"{key_prefix}_legacy_submit_{object_index}",
                 width="stretch",
             ):
-                vote_val = None
-                if vote_choice:
-                    if "A is better" in vote_choice:
-                        vote_val = "candidate_a"
-                    elif "B is better" in vote_choice:
-                        vote_val = "candidate_b"
-                    elif "equal" in vote_choice or "tie" in vote_choice:
-                        vote_val = "tie"
-                    elif "Both poor" in vote_choice:
-                        vote_val = "both_poor"
-
-                rating_a_val = "thumbs_up" if rating_a and "Good" in rating_a else ("thumbs_down" if rating_a else None)
-                rating_b_val = "thumbs_up" if rating_b and "Good" in rating_b else ("thumbs_down" if rating_b else None)
-
                 on_submit(
-                    candidate_file_indices={"A": cand_a["file_index"], "B": cand_b["file_index"]},
+                    candidate_file_indices={
+                        label: caption["file_index"]
+                        for label, caption in zip(("A", "B"), captions)
+                    },
                     candidates_info={
-                        "A": {"model": cand_a.get("model", ""), "strategy": cand_a.get("strategy", "")},
-                        "B": {"model": cand_b.get("model", ""), "strategy": cand_b.get("strategy", "")},
+                        label: {
+                            "model": caption.get("model", ""),
+                            "strategy": caption.get("strategy", ""),
+                        }
+                        for label, caption in zip(("A", "B"), captions)
                     },
-                    vote=vote_val,
-                    candidates_eval={
-                        "A": {"rating": rating_a_val, "tags": tags_a or [], "span_annotations": annotations_a or []},
-                        "B": {"rating": rating_b_val, "tags": tags_b or [], "span_annotations": annotations_b or []},
-                    },
-                    note=comp_note,
+                    vote=vote,
+                    candidates_eval=evaluations,
+                    note=note,
                 )

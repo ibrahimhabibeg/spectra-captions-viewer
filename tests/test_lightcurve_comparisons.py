@@ -1,0 +1,141 @@
+import json
+
+import feedback
+from data_loader import load_and_group_objects, parse_lightcurve_prompt
+from plotting import create_lightcurve_figure
+from ui_views import build_pairwise_matrix, pairwise_cell_style
+
+
+def test_negative_magnitude_errors_are_omitted_from_plot():
+    prompt = """<light_curve>
+MJD FLT FIELD FLUXCAL FLUXCALERR MAG MAGERR PHOTFLAG
+60000.0 g NULL 10.0 2.0 20.0 -9.0 0
+60001.0 r NULL 11.0 2.0 19.5 0.2 0
+</light_curve>"""
+
+    observations = parse_lightcurve_prompt(prompt)
+
+    assert observations[0]["magnitude_error"] is None
+    figure = create_lightcurve_figure(observations, "object-1")
+    assert all(error >= 0 for trace in figure.data for error in trace.error_y.array)
+    assert figure.layout.yaxis.autorange == "reversed"
+
+
+def test_nested_comparison_is_normalized_to_abc(tmp_path):
+    record = {
+        "comparison_id": "comparison-1",
+        "object_id": "object-1",
+        "conditions": {
+            "C_context": {"caption": "C", "prompt": ""},
+            "A_context": {"caption": "A", "prompt": ""},
+            "B_context": {"caption": "B", "prompt": ""},
+        },
+    }
+    path = tmp_path / "comparisons.jsonl"
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    objects = load_and_group_objects(str(path), "lightcurves")
+
+    assert [candidate["condition"] for candidate in objects[0]["captions"]] == [
+        "A_context",
+        "B_context",
+        "C_context",
+    ]
+
+
+def test_missing_files_produce_empty_datasets(tmp_path):
+    assert load_and_group_objects(str(tmp_path / "missing.jsonl"), "spectra") == []
+
+
+def test_flat_spectral_captions_are_batched_without_dropping_rows(tmp_path):
+    path = tmp_path / "spectra.jsonl"
+    rows = [
+        {
+            "object_key": "object-1",
+            "dataset_source": "sdss",
+            "model": f"model-{index}",
+            "strategy": f"strategy-{index}",
+            "output": {"caption": f"Caption {index}"},
+        }
+        for index in range(7)
+    ]
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    objects = load_and_group_objects(str(path), "spectra")
+
+    assert [len(obj["captions"]) for obj in objects] == [3, 3, 1]
+    assert sum(len(obj["captions"]) for obj in objects) == len(rows)
+    assert [obj["comparison_batch"] for obj in objects] == [0, 1, 2]
+    assert all(obj["comparison_batch_count"] == 3 for obj in objects)
+
+
+def test_abc_feedback_requires_all_three_pairwise_choices(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(feedback.config, "HF_TOKEN", None)
+    candidates = {label: {} for label in "ABC"}
+
+    success, _ = feedback.submit_abc_feedback(
+        object_key="object-1",
+        dataset_source="test",
+        candidate_file_indices={"A": 0, "B": 1, "C": 2},
+        candidates_info=candidates,
+        comparisons={"a_vs_b": "A", "b_vs_c": "B", "c_vs_a": None},
+    )
+
+    assert success is False
+    assert not (tmp_path / "output" / "feedback.jsonl").exists()
+
+
+def test_complete_abc_feedback_is_saved_atomically(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(feedback.config, "HF_TOKEN", None)
+
+    success, _ = feedback.submit_abc_feedback(
+        object_key="object-1",
+        dataset_source="test",
+        modality="lightcurves",
+        candidate_file_indices={"A": 0, "B": 1, "C": 2},
+        candidates_info={label: {} for label in "ABC"},
+        comparisons={"a_vs_b": "A", "b_vs_c": "Tie", "c_vs_a": "A"},
+    )
+
+    assert success is True
+    record = json.loads((tmp_path / "output" / "feedback.jsonl").read_text())
+    assert record["evaluation_mode"] == "abc_pairwise_comparison"
+    assert record["modality"] == "lightcurves"
+    assert record["comparisons"] == {
+        "a_vs_b": "A",
+        "b_vs_c": "Tie",
+        "c_vs_a": "A",
+    }
+
+
+def test_pairwise_matrix_shows_better_worse_and_tie():
+    captions = [
+        {"model": "model-a", "strategy": "strategy-a"},
+        {"model": "model-b", "strategy": "strategy-b"},
+        {"model": "model-c", "strategy": "strategy-c"},
+    ]
+
+    matrix = build_pairwise_matrix(
+        captions,
+        {"a_vs_b": "A", "b_vs_c": "Tie", "c_vs_a": "C"},
+    )
+
+    assert matrix[0] == {
+        "Candidate": "A",
+        "Model / strategy": "model-a / strategy-a",
+        "A": "—",
+        "B": "Better",
+        "C": "Worse",
+    }
+    assert matrix[1]["A"] == "Worse"
+    assert matrix[1]["C"] == "Tie"
+    assert matrix[2]["A"] == "Better"
+    assert matrix[2]["B"] == "Tie"
+
+
+def test_pairwise_matrix_symbol_colors():
+    assert "#16a34a" in pairwise_cell_style("↑")
+    assert "#6b7280" in pairwise_cell_style("-")
+    assert "#dc2626" in pairwise_cell_style("↓")
