@@ -182,7 +182,15 @@ def load_and_group_objects(path: str | None, modality: str = "spectra") -> list[
             ordered_keys.append(group_key)
         grouped_map[group_key]["captions"].append(caption)
 
-    objects.extend(grouped_map[key] for key in ordered_keys)
+    for key in ordered_keys:
+        grouped = grouped_map[key]
+        captions = grouped["captions"]
+        for batch_index, start in enumerate(range(0, len(captions), 3)):
+            batch = grouped.copy()
+            batch["captions"] = captions[start : start + 3]
+            batch["comparison_batch"] = batch_index
+            batch["comparison_batch_count"] = math.ceil(len(captions) / 3)
+            objects.append(batch)
     return objects
 
 

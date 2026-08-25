@@ -46,6 +46,28 @@ def test_missing_files_produce_empty_datasets(tmp_path):
     assert load_and_group_objects(str(tmp_path / "missing.jsonl"), "spectra") == []
 
 
+def test_flat_spectral_captions_are_batched_without_dropping_rows(tmp_path):
+    path = tmp_path / "spectra.jsonl"
+    rows = [
+        {
+            "object_key": "object-1",
+            "dataset_source": "sdss",
+            "model": f"model-{index}",
+            "strategy": f"strategy-{index}",
+            "output": {"caption": f"Caption {index}"},
+        }
+        for index in range(7)
+    ]
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    objects = load_and_group_objects(str(path), "spectra")
+
+    assert [len(obj["captions"]) for obj in objects] == [3, 3, 1]
+    assert sum(len(obj["captions"]) for obj in objects) == len(rows)
+    assert [obj["comparison_batch"] for obj in objects] == [0, 1, 2]
+    assert all(obj["comparison_batch_count"] == 3 for obj in objects)
+
+
 def test_abc_feedback_requires_all_three_pairwise_choices(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(feedback.config, "HF_TOKEN", None)
